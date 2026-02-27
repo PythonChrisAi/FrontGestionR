@@ -39,12 +39,33 @@ const UI = {
         this.setupEventListeners();
         this.cargarDatosIniciales();
         this.setupRefreshIntervals();
+        this.sincronizarCuentas(); // Nueva función para sincronizar
         
         this.agregarAlerta(
             '🎉 Bienvenido',
             'FrontGestionR conectado al sistema',
             'info'
         );
+    },
+
+    async sincronizarCuentas() {
+        try {
+            // Obtener todas las mesas
+            const mesas = await API.getMesas();
+            
+            // Filtrar mesas ocupadas
+            const mesasOcupadas = mesas.filter(m => m.estado === 'ocupada');
+            
+            console.log('Mesas ocupadas en backend:', mesasOcupadas.map(m => m.numero));
+            console.log('Mapa actual antes de sincronizar:', Array.from(this.mesaCuentaMap.entries()));
+            
+            // Por ahora, solo mostramos información
+            // En el futuro, cuando el backend tenga un endpoint para obtener cuenta por mesa,
+            // aquí podríamos actualizar el mapa
+            
+        } catch (error) {
+            console.error('Error sincronizando cuentas:', error);
+        }
     },
 
     checkAuth() {
@@ -220,11 +241,15 @@ const UI = {
         const puedeAbrirCuenta = this.user && [1,3].includes(this.user.rol_id);
         const puedeVerPago = this.user && [1,2,3].includes(this.user.rol_id);
         
+        // Verificar si hay cuenta en el mapa para esta mesa
+        const tieneCuenta = this.mesaCuentaMap.has(mesa.id);
+        
         let html = `
             <div style="text-align: center; margin-bottom: 20px;">
                 <span class="mesa-numero" style="font-size: 3rem;">${mesa.numero}</span>
                 <span class="mesa-estado" style="font-size: 1.2rem; display: block; margin-top: 10px;">
                     Estado actual: <strong>${mesa.estado}</strong>
+                    ${tieneCuenta ? '<br><small style="color: #10b981;">✓ Cuenta activa</small>' : ''}
                 </span>
             </div>
         `;
@@ -238,16 +263,18 @@ const UI = {
                         📝 Abrir Cuenta
                     </button>
                 `;
-            } else if (mesa.estado === 'ocupada') {
-                html += `
-                    <button class="btn-primary" onclick="UI.tomarOrdenMesa(${mesa.id}, ${mesa.numero})">
-                        🍽️ Tomar Orden
-                    </button>
-                `;
+            } else if (mesa.estado === 'ocupada' || tieneCuenta) {
+                if (puedeVerPago) {
+                    html += `
+                        <button class="btn-primary" onclick="UI.tomarOrdenMesa(${mesa.id}, ${mesa.numero})">
+                            🍽️ Tomar Orden
+                        </button>
+                    `;
+                }
             }
             
-            // Botón de pago siempre visible para mesas ocupadas
-            if (mesa.estado === 'ocupada' && puedeVerPago) {
+            // Botón de pago si hay cuenta en el mapa
+            if (tieneCuenta && puedeVerPago) {
                 html += `
                     <button class="btn-success" onclick="UI.verCuenta(${mesa.id})">
                         💰 Pagar Cuenta
@@ -382,7 +409,7 @@ const UI = {
             </div>
             
             <div class="btn-group">
-                <button class="btn-success" onclick="UI.procesarPago(${cuenta.cuenta_id}, '${cuenta.mesa_numero}')">
+                <button class="btn-success" onclick="UI.procesarPago(${cuenta.cuenta_id}, ${cuenta.mesa_numero})">
                     ✅ Procesar Pago Total
                 </button>
                 <button class="btn-secondary" onclick="UI.cerrarModal('pago')">
@@ -420,12 +447,15 @@ const UI = {
             const result = await API.abrirCuenta(mesaId);
             
             // Guardar la relación mesa-cuenta
-            this.mesaCuentaMap.set(mesaId, result.cuenta.id);
-            console.log('Mapa actualizado:', Array.from(this.mesaCuentaMap.entries()));
+            const cuentaId = result.cuenta.id;
+            this.mesaCuentaMap.set(mesaId, cuentaId);
+            
+            console.log('✅ Relación guardada: Mesa', mesaId, '→ Cuenta', cuentaId);
+            console.log('Mapa actual:', Array.from(this.mesaCuentaMap.entries()));
             
             this.agregarAlerta(
                 '✅ Cuenta abierta',
-                `Mesa ${mesaNumero} - Cuenta #${result.cuenta.id}`,
+                `Mesa ${mesaNumero} - Cuenta #${cuentaId}`,
                 'success'
             );
             
@@ -456,11 +486,19 @@ const UI = {
     },
 
     async tomarOrdenMesa(mesaId, mesaNumero) {
-        // Obtener el cuenta_id de la mesa
+        // Obtener el cuenta_id de la mesa desde el mapa
         const cuentaId = this.mesaCuentaMap.get(mesaId);
         
+        console.log('Tomar orden para mesa:', mesaId);
+        console.log('Cuenta encontrada:', cuentaId);
+        console.log('Mapa actual:', Array.from(this.mesaCuentaMap.entries()));
+        
         if (!cuentaId) {
-            this.agregarAlerta('❌ Error', 'No hay cuenta activa para esta mesa', 'error');
+            this.agregarAlerta(
+                '❌ Error',
+                'No hay cuenta activa para esta mesa. Primero debes abrir una cuenta.',
+                'error'
+            );
             return;
         }
         
@@ -478,22 +516,43 @@ const UI = {
 
     async verCuenta(mesaId) {
         try {
-            // Obtener el cuenta_id de la mesa
+            // Obtener el cuenta_id de la mesa desde el mapa
             const cuentaId = this.mesaCuentaMap.get(mesaId);
             
+            console.log('Ver cuenta para mesa:', mesaId);
+            console.log('Cuenta encontrada:', cuentaId);
+            console.log('Mapa actual:', Array.from(this.mesaCuentaMap.entries()));
+            
             if (!cuentaId) {
-                this.agregarAlerta('❌ Error', 'No hay cuenta activa para esta mesa', 'error');
+                this.agregarAlerta(
+                    '❌ Error',
+                    'No hay cuenta activa para esta mesa. Primero debes abrir una cuenta.',
+                    'error'
+                );
                 return;
             }
             
-            console.log('Ver cuenta:', cuentaId);
+            console.log('Obteniendo cuenta:', cuentaId);
             const cuenta = await API.getCuenta(cuentaId);
             cuenta.mesa_numero = mesaId;
             
             this.abrirModal('pago', cuenta);
+            
         } catch (error) {
             console.error('Error al ver cuenta:', error);
-            this.agregarAlerta('❌ Error', error.message, 'error');
+            
+            if (error.message.includes('no encontrada')) {
+                // Si la cuenta no existe, limpiar el mapa
+                this.mesaCuentaMap.delete(mesaId);
+                this.agregarAlerta(
+                    'ℹ️ Información',
+                    'La cuenta ya no existe. Actualizando estado...',
+                    'info'
+                );
+                await CargarDatos.cargarMesas();
+            } else {
+                this.agregarAlerta('❌ Error', error.message, 'error');
+            }
         }
     },
 
@@ -838,6 +897,7 @@ const UI = {
         mesas.forEach(mesa => {
             const estado = mesa.estado || 'disponible';
             const tienePadre = mesa.mesa_padre_id ? 'fusionada' : '';
+            const tieneCuenta = this.mesaCuentaMap.has(mesa.id);
             
             html += `
                 <div class="mesa-item ${estado} ${tienePadre}" 
@@ -845,9 +905,11 @@ const UI = {
                      data-mesa-numero="${mesa.numero}"
                      data-mesa-estado="${estado}"
                      data-mesa-padre="${mesa.mesa_padre_id || ''}"
-                     style="cursor: pointer;">
+                     data-tiene-cuenta="${tieneCuenta}"
+                     style="cursor: pointer; ${tieneCuenta ? 'border: 2px solid #10b981;' : ''}">
                     <span class="mesa-numero">${mesa.numero}</span>
                     <span class="mesa-estado">${estado}</span>
+                    ${tieneCuenta ? '<span class="mesa-fusionada">💰</span>' : ''}
                     ${mesa.mesa_padre_id ? '<span class="mesa-fusionada">🔗</span>' : ''}
                 </div>
             `;
