@@ -1,16 +1,17 @@
 // Configuración centralizada para FrontGestionR
+// Configuración centralizada para FrontGestionR
 const CONFIG = {
     // Detectar ambiente automáticamente
     isDevelopment: window.location.hostname === 'localhost' || 
                    window.location.hostname === '127.0.0.1',
     
-    // URLs del backend - ¡CAMBIA ESTO por tu URL de Railway!
+    // URLs del backend - CORREGIDO
     backendUrl: (() => {
         if (window.location.hostname === 'localhost' || 
             window.location.hostname === '127.0.0.1') {
-            return 'https://restaurant-api-production-3a92.up.railway.app';
+            return 'http://localhost:3000'; // 🟢 LOCAL: tu backend local
         }
-        // ⚠️ IMPORTANTE: Reemplaza con tu URL real de Railway
+        // ⚠️ PRODUCCIÓN: tu URL de Railway
         return 'https://restaurant-api-production-3a92.up.railway.app';
     })(),
     
