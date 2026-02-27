@@ -8,29 +8,31 @@ const UI = {
         mesas: 0,
         alertas: 0
     },
+    
+    // Estado para órdenes
+    ordenActual: {
+        cuentaId: null,
+        mesaNumero: null,
+        items: [], // { producto_id, nombre, cantidad, precio, cliente }
+        clientes: ['General']
+    },
+    
+    // Estado para fusión de mesas
+    fusionState: {
+        mesaPrincipal: null,
+        mesasSeleccionadas: []
+    },
 
     init() {
         console.log('🚀 Inicializando FrontGestionR v' + CONFIG.version);
         
-        // Verificar si hay sesión activa
         this.checkAuth();
-        
-        // Inicializar sockets
         Sockets.init();
-        
-        // Configurar navegación
         this.setupNavigation();
-        
-        // Configurar eventos
         this.setupEventListeners();
-        
-        // Cargar datos iniciales
         this.cargarDatosIniciales();
-        
-        // Configurar recargas periódicas
         this.setupRefreshIntervals();
         
-        // Mostrar mensaje de bienvenida
         this.agregarAlerta(
             '🎉 Bienvenido',
             'FrontGestionR conectado al sistema',
@@ -72,14 +74,12 @@ const UI = {
             });
         });
 
-        // Botón de logout
         document.getElementById('btnLogout')?.addEventListener('click', () => {
             API.logout();
             this.mostrarLogin();
             this.agregarAlerta('👋 Sesión cerrada', 'Has cerrado sesión exitosamente', 'info');
         });
 
-        // Formulario de login
         document.getElementById('loginForm')?.addEventListener('submit', async (e) => {
             e.preventDefault();
             await this.handleLogin();
@@ -114,7 +114,6 @@ const UI = {
     },
 
     setupEventListeners() {
-        // Botones de refresh
         document.querySelectorAll('.btn-refresh').forEach(btn => {
             btn.addEventListener('click', (e) => {
                 e.preventDefault();
@@ -130,17 +129,16 @@ const UI = {
     cargarDatosIniciales() {
         CargarDatos.cargarPedidosPendientes();
         CargarDatos.cargarMesas();
+        CargarDatos.cargarMenu(); // Cargar menú para órdenes
     },
 
     setupRefreshIntervals() {
-        // Recargar pedidos cada 30 segundos
         setInterval(() => {
             if (this.currentSection === 'cocina') {
                 CargarDatos.cargarPedidosPendientes();
             }
         }, CONFIG.refreshIntervals.pedidos);
 
-        // Recargar mesas cada 60 segundos
         setInterval(() => {
             if (this.currentSection === 'mesas') {
                 CargarDatos.cargarMesas();
@@ -149,7 +147,6 @@ const UI = {
     },
 
     cambiarSeccion(sectionId) {
-        // Actualizar botones
         document.querySelectorAll('.nav-btn').forEach(btn => {
             btn.classList.remove('active');
             if (btn.dataset.section === sectionId) {
@@ -157,7 +154,6 @@ const UI = {
             }
         });
 
-        // Actualizar secciones
         document.querySelectorAll('.content-section').forEach(section => {
             section.classList.remove('active');
         });
@@ -169,8 +165,445 @@ const UI = {
         }
     },
 
-    // ========== RENDERIZADO ==========
+    // ========== MODALES ==========
+    abrirModal(tipo, datos = {}) {
+        const modalId = tipo + '-modal';
+        const modal = document.getElementById(modalId);
+        if (!modal) return;
+        
+        const modalBody = document.getElementById(modalId.replace('modal', 'modal-body'));
+        
+        switch(tipo) {
+            case 'mesa':
+                this.renderModalMesa(modalBody, datos);
+                break;
+            case 'orden':
+                this.renderModalOrden(modalBody, datos);
+                break;
+            case 'pago':
+                this.renderModalPago(modalBody, datos);
+                break;
+        }
+        
+        modal.style.display = 'flex';
+    },
 
+    cerrarModal(tipo = null) {
+        if (tipo) {
+            document.getElementById(tipo + '-modal').style.display = 'none';
+        } else {
+            document.querySelectorAll('.modal').forEach(modal => {
+                modal.style.display = 'none';
+            });
+        }
+    },
+
+    // ========== RENDERIZADO DE MODALES ==========
+    renderModalMesa(container, mesa) {
+        const puedeFusionar = this.user && [1,2].includes(this.user.rol_id);
+        const puedeAbrirCuenta = this.user && [1,3].includes(this.user.rol_id);
+        
+        container.innerHTML = `
+            <div style="text-align: center; margin-bottom: 20px;">
+                <span class="mesa-numero" style="font-size: 3rem;">${mesa.numero}</span>
+                <span class="mesa-estado" style="font-size: 1.2rem; display: block;">${mesa.estado}</span>
+            </div>
+            
+            <div class="btn-group">
+                ${mesa.estado === 'disponible' ? `
+                    <button class="btn-success" onclick="UI.abrirCuentaMesa(${mesa.id}, ${mesa.numero})">
+                        📝 Abrir Cuenta
+                    </button>
+                ` : mesa.estado === 'ocupada' ? `
+                    <button class="btn-primary" onclick="UI.tomarOrdenMesa(${mesa.id}, ${mesa.numero})">
+                        🍽️ Tomar Orden
+                    </button>
+                    <button class="btn-success" onclick="UI.verCuenta(${mesa.id})">
+                        💰 Ver Cuenta
+                    </button>
+                ` : ''}
+                
+                ${puedeFusionar && mesa.estado !== 'ocupada' ? `
+                    <button class="btn-secondary" onclick="UI.iniciarFusionMesa(${mesa.id}, ${mesa.numero})">
+                        🔗 Fusionar Mesas
+                    </button>
+                ` : ''}
+                
+                <button class="btn-secondary" onclick="UI.cerrarModal('mesa')">
+                    ❌ Cerrar
+                </button>
+            </div>
+            
+            ${mesa.mesa_padre_id ? `
+                <div style="margin-top: 20px; padding: 10px; background: rgba(99,102,241,0.2); border-radius: 10px;">
+                    <small>Esta mesa está fusionada con la mesa principal</small>
+                </div>
+            ` : ''}
+        `;
+    },
+
+    renderModalOrden(container, datos) {
+        const { mesaId, mesaNumero } = datos;
+        this.ordenActual.mesaNumero = mesaNumero;
+        
+        container.innerHTML = `
+            <h3>Mesa ${mesaNumero} - Tomar Orden</h3>
+            
+            <div class="form-group">
+                <label>Seleccionar Cliente:</label>
+                <div class="cliente-tabs" id="cliente-tabs">
+                    ${this.ordenActual.clientes.map((cliente, idx) => `
+                        <span class="cliente-tab ${idx === 0 ? 'active' : ''}" 
+                              onclick="UI.seleccionarCliente(${idx})">
+                            ${cliente}
+                            ${idx > 0 ? '<span class="badge" onclick="UI.eliminarCliente(event, ' + idx + ')">×</span>' : ''}
+                        </span>
+                    `).join('')}
+                    <button class="btn-agregar-cliente" onclick="UI.agregarCliente()">+ Agregar</button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Platillos:</label>
+                <div class="platillos-lista" id="platillos-lista">
+                    <div class="loading-spinner" style="padding: 20px;">Cargando menú...</div>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Orden Actual:</label>
+                <div class="orden-actual-items" id="orden-actual-items">
+                    ${this.renderOrdenActualItems()}
+                </div>
+            </div>
+            
+            <div class="btn-group">
+                <button class="btn-success" onclick="UI.enviarOrden()" ${this.ordenActual.items.length === 0 ? 'disabled' : ''}>
+                    ✅ Enviar a Cocina
+                </button>
+                <button class="btn-secondary" onclick="UI.cerrarModal('orden')">
+                    ❌ Cancelar
+                </button>
+            </div>
+        `;
+        
+        // Cargar menú
+        this.cargarMenuEnModal();
+    },
+
+    renderModalPago(container, cuenta) {
+        container.innerHTML = `
+            <h3>Cuenta Mesa ${cuenta.mesa_numero}</h3>
+            
+            <div class="cuenta-detalle">
+                ${cuenta.detalle.map(item => `
+                    <div style="display: flex; justify-content: space-between; padding: 5px 0;">
+                        <span>${item.cantidad}× ${item.platillo}</span>
+                        <span>$${(item.precio_unitario * item.cantidad).toFixed(2)}</span>
+                    </div>
+                `).join('')}
+                
+                <div class="cuenta-total">
+                    Total: $${cuenta.total.toFixed(2)}
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label>Método de Pago:</label>
+                <div class="metodo-pago-group">
+                    <label class="metodo-pago-option selected">
+                        <input type="radio" name="metodo_pago" value="efectivo" checked>
+                        💵 Efectivo
+                    </label>
+                    <label class="metodo-pago-option">
+                        <input type="radio" name="metodo_pago" value="terminal">
+                        💳 Terminal
+                    </label>
+                </div>
+            </div>
+            
+            <div class="btn-group">
+                <button class="btn-success" onclick="UI.procesarPago(${cuenta.id})">
+                    ✅ Procesar Pago
+                </button>
+                <button class="btn-secondary" onclick="UI.cerrarModal('pago')">
+                    ❌ Cerrar
+                </button>
+            </div>
+        `;
+    },
+
+    renderOrdenActualItems() {
+        if (this.ordenActual.items.length === 0) {
+            return '<div class="empty-state">No hay items en la orden</div>';
+        }
+        
+        return this.ordenActual.items.map((item, idx) => `
+            <div class="orden-item-row">
+                <div class="orden-item-info">
+                    <input type="number" class="orden-item-cantidad" 
+                           value="${item.cantidad}" min="1" max="10"
+                           onchange="UI.actualizarCantidadItem(${idx}, this.value)">
+                    <span>${item.nombre}</span>
+                    <small>$${item.precio}</small>
+                    <small>(${item.cliente})</small>
+                </div>
+                <button class="btn-remove-item" onclick="UI.eliminarItem(${idx})">×</button>
+            </div>
+        `).join('');
+    },
+
+    // ========== ACCIONES DE MESAS ==========
+    async abrirCuentaMesa(mesaId, mesaNumero) {
+        try {
+            const result = await API.abrirCuenta(mesaId);
+            this.agregarAlerta(
+                '✅ Cuenta abierta',
+                `Mesa ${mesaNumero} - Cuenta #${result.cuenta.id}`,
+                'success'
+            );
+            this.cerrarModal('mesa');
+            CargarDatos.cargarMesas();
+        } catch (error) {
+            this.agregarAlerta('❌ Error', error.message, 'error');
+        }
+    },
+
+    tomarOrdenMesa(mesaId, mesaNumero) {
+        this.ordenActual = {
+            cuentaId: null,
+            mesaNumero,
+            items: [],
+            clientes: ['General']
+        };
+        
+        // Buscar cuenta activa
+        this.buscarCuentaActiva(mesaId).then(cuentaId => {
+            this.ordenActual.cuentaId = cuentaId;
+            this.abrirModal('orden', { mesaId, mesaNumero });
+        });
+    },
+
+    async buscarCuentaActiva(mesaId) {
+        // Por ahora, asumimos que hay una cuenta activa
+        // En producción, deberías obtenerla de la API
+        return 1; // Temporal
+    },
+
+    // ========== ACCIONES DE ORDEN ==========
+    async cargarMenuEnModal() {
+        const container = document.getElementById('platillos-lista');
+        try {
+            const menu = await API.getMenu();
+            container.innerHTML = menu.map(platillo => `
+                <div class="platillo-item" onclick="UI.agregarItemAOrden(${platillo.id}, '${platillo.nombre}', ${platillo.precio})">
+                    <div class="platillo-info">
+                        <h4>${platillo.nombre}</h4>
+                        <p>${platillo.descripcion || ''}</p>
+                    </div>
+                    <span class="platillo-precio">$${platillo.precio}</span>
+                </div>
+            `).join('');
+        } catch (error) {
+            container.innerHTML = '<div class="empty-state">Error cargando menú</div>';
+        }
+    },
+
+    agregarItemAOrden(productoId, nombre, precio) {
+        const clienteActual = document.querySelector('.cliente-tab.active')?.textContent || 'General';
+        
+        this.ordenActual.items.push({
+            producto_id: productoId,
+            nombre,
+            precio,
+            cantidad: 1,
+            cliente: clienteActual
+        });
+        
+        document.getElementById('orden-actual-items').innerHTML = this.renderOrdenActualItems();
+        this.actualizarBotonOrden();
+    },
+
+    actualizarCantidadItem(index, cantidad) {
+        this.ordenActual.items[index].cantidad = parseInt(cantidad) || 1;
+        document.getElementById('orden-actual-items').innerHTML = this.renderOrdenActualItems();
+    },
+
+    eliminarItem(index) {
+        this.ordenActual.items.splice(index, 1);
+        document.getElementById('orden-actual-items').innerHTML = this.renderOrdenActualItems();
+        this.actualizarBotonOrden();
+    },
+
+    actualizarBotonOrden() {
+        const btn = document.querySelector('#orden-modal .btn-success');
+        if (btn) {
+            btn.disabled = this.ordenActual.items.length === 0;
+        }
+    },
+
+    seleccionarCliente(index) {
+        document.querySelectorAll('.cliente-tab').forEach(tab => tab.classList.remove('active'));
+        document.querySelectorAll('.cliente-tab')[index].classList.add('active');
+    },
+
+    agregarCliente() {
+        const nombre = prompt('Nombre del cliente:');
+        if (nombre && nombre.trim()) {
+            this.ordenActual.clientes.push(nombre.trim());
+            this.renderModalOrden(document.getElementById('orden-modal-body'), {
+                mesaNumero: this.ordenActual.mesaNumero
+            });
+        }
+    },
+
+    eliminarCliente(event, index) {
+        event.stopPropagation();
+        this.ordenActual.clientes.splice(index, 1);
+        this.renderModalOrden(document.getElementById('orden-modal-body'), {
+            mesaNumero: this.ordenActual.mesaNumero
+        });
+    },
+
+    async enviarOrden() {
+        if (!this.ordenActual.cuentaId) {
+            this.agregarAlerta('❌ Error', 'No hay cuenta activa para esta mesa', 'error');
+            return;
+        }
+        
+        try {
+            const platillos = this.ordenActual.items.map(item => ({
+                producto_id: item.producto_id,
+                cantidad: item.cantidad,
+                cliente_nombre: item.cliente
+            }));
+            
+            await API.tomarOrden(this.ordenActual.cuentaId, platillos);
+            
+            this.agregarAlerta(
+                '✅ Orden enviada',
+                `Mesa ${this.ordenActual.mesaNumero} - ${platillos.length} platillos`,
+                'success'
+            );
+            
+            this.cerrarModal('orden');
+            this.ordenActual.items = [];
+            
+        } catch (error) {
+            this.agregarAlerta('❌ Error', error.message, 'error');
+        }
+    },
+
+    // ========== ACCIONES DE PAGO ==========
+    async verCuenta(mesaId) {
+        try {
+            // Obtener cuenta activa
+            const cuenta = await API.getCuenta(1); // Temporal: ID fijo
+            this.abrirModal('pago', cuenta);
+        } catch (error) {
+            this.agregarAlerta('❌ Error', error.message, 'error');
+        }
+    },
+
+    async procesarPago(cuentaId) {
+        const metodoPago = document.querySelector('input[name="metodo_pago"]:checked').value;
+        
+        try {
+            await API.procesarPago(cuentaId, [{
+                cliente_nombre: 'General',
+                monto: 0, // Calcular total
+                metodo_pago: metodoPago
+            }]);
+            
+            this.agregarAlerta(
+                '✅ Pago procesado',
+                'Mesa liberada exitosamente',
+                'success'
+            );
+            
+            this.cerrarModal('pago');
+            CargarDatos.cargarMesas();
+            
+        } catch (error) {
+            this.agregarAlerta('❌ Error', error.message, 'error');
+        }
+    },
+
+    // ========== ACCIONES DE FUSIÓN ==========
+    iniciarFusionMesa(mesaId, mesaNumero) {
+        this.fusionState = {
+            mesaPrincipal: { id: mesaId, numero: mesaNumero },
+            mesasSeleccionadas: []
+        };
+        
+        this.abrirModalFusion();
+    },
+
+    async abrirModalFusion() {
+        const modalBody = document.getElementById('modal-body');
+        const mesas = await CargarDatos.obtenerMesas();
+        
+        modalBody.innerHTML = `
+            <h3>Fusionar con Mesa ${this.fusionState.mesaPrincipal.numero}</h3>
+            <p>Selecciona las mesas a fusionar:</p>
+            
+            <div class="mesas-fusion-grid">
+                ${mesas.filter(m => m.id !== this.fusionState.mesaPrincipal.id && m.estado === 'disponible')
+                    .map(mesa => `
+                        <div class="mesa-fusion-item disponible ${this.fusionState.mesasSeleccionadas.includes(mesa.id) ? 'selected' : ''}"
+                             onclick="UI.toggleMesaFusion(${mesa.id})">
+                            <span class="mesa-numero">${mesa.numero}</span>
+                            <span class="mesa-estado">${mesa.estado}</span>
+                        </div>
+                    `).join('')}
+            </div>
+            
+            <div class="btn-group">
+                <button class="btn-primary" onclick="UI.confirmarFusion()" 
+                        ${this.fusionState.mesasSeleccionadas.length === 0 ? 'disabled' : ''}>
+                    🔗 Confirmar Fusión
+                </button>
+                <button class="btn-secondary" onclick="UI.cerrarModal()">
+                    ❌ Cancelar
+                </button>
+            </div>
+        `;
+        
+        document.getElementById('mesa-modal').style.display = 'flex';
+    },
+
+    toggleMesaFusion(mesaId) {
+        const index = this.fusionState.mesasSeleccionadas.indexOf(mesaId);
+        if (index === -1) {
+            this.fusionState.mesasSeleccionadas.push(mesaId);
+        } else {
+            this.fusionState.mesasSeleccionadas.splice(index, 1);
+        }
+        this.abrirModalFusion(); // Re-render
+    },
+
+    async confirmarFusion() {
+        try {
+            await API.fusionarMesas(
+                this.fusionState.mesaPrincipal.id,
+                this.fusionState.mesasSeleccionadas
+            );
+            
+            this.agregarAlerta(
+                '✅ Mesas fusionadas',
+                `Mesa ${this.fusionState.mesaPrincipal.numero} + ${this.fusionState.mesasSeleccionadas.length} mesas`,
+                'success'
+            );
+            
+            this.cerrarModal();
+            CargarDatos.cargarMesas();
+            
+        } catch (error) {
+            this.agregarAlerta('❌ Error', error.message, 'error');
+        }
+    },
+
+    // ========== RENDERIZADO PRINCIPAL ==========
     renderizarOrdenes(ordenes) {
         const container = document.getElementById('cocina-ordenes');
         if (!container) return;
@@ -181,7 +614,6 @@ const UI = {
             return;
         }
 
-        // Agrupar por mesa
         const ordenesPorMesa = ordenes.reduce((acc, orden) => {
             const mesaNum = orden.mesa_numero || 'Sin mesa';
             if (!acc[mesaNum]) {
@@ -191,7 +623,6 @@ const UI = {
             return acc;
         }, {});
 
-        // Actualizar badge
         this.actualizarBadge('cocina', ordenes.length);
 
         let html = '';
@@ -199,7 +630,6 @@ const UI = {
             const primerPedido = pedidos[0];
             const tiempo = new Date(primerPedido.creado_en).toLocaleTimeString();
             
-            // Determinar estado general de la mesa
             const tieneListos = pedidos.some(p => p.estado === 'listo');
             const claseEstado = tieneListos ? 'estado-listo' : '';
 
@@ -211,9 +641,17 @@ const UI = {
                     </div>
                     <div class="orden-platillos">
                         ${pedidos.map(p => `
-                            <span class="platillo-tag" data-pedido-id="${p.pedido_id}">
+                            <span class="platillo-tag" data-pedido-id="${p.pedido_id}" data-estado="${p.estado}">
                                 ${p.cantidad}× ${p.platillo}
                                 <span class="estado-badge estado-${p.estado}">${p.estado}</span>
+                                ${this.user && [1,4].includes(this.user.rol_id) ? `
+                                    <select class="estado-select" onchange="UI.cambiarEstadoPedido(${p.pedido_id}, this.value)" style="margin-left: 5px;">
+                                        <option value="pendiente" ${p.estado === 'pendiente' ? 'selected' : ''}>Pendiente</option>
+                                        <option value="preparando" ${p.estado === 'preparando' ? 'selected' : ''}>Preparando</option>
+                                        <option value="listo" ${p.estado === 'listo' ? 'selected' : ''}>Listo</option>
+                                        <option value="entregado" ${p.estado === 'entregado' ? 'selected' : ''}>Entregado</option>
+                                    </select>
+                                ` : ''}
                             </span>
                         `).join('')}
                     </div>
@@ -222,29 +660,6 @@ const UI = {
         }
 
         container.innerHTML = html;
-
-        // Agregar eventos a los platillos para cambiar estado (opcional)
-        container.querySelectorAll('.platillo-tag').forEach(tag => {
-            tag.addEventListener('dblclick', async (e) => {
-                const pedidoId = tag.dataset.pedidoId;
-                if (pedidoId && this.user && [1,4].includes(this.user.rol_id)) {
-                    const nuevoEstado = prompt('Cambiar estado a: (preparando/listo/entregado)');
-                    if (nuevoEstado && ['preparando', 'listo', 'entregado'].includes(nuevoEstado)) {
-                        try {
-                            await API.cambiarEstadoPedido(pedidoId, nuevoEstado);
-                            this.agregarAlerta(
-                                '✅ Estado actualizado',
-                                `Pedido #${pedidoId} ahora está ${nuevoEstado}`,
-                                'success'
-                            );
-                            CargarDatos.cargarPedidosPendientes();
-                        } catch (error) {
-                            this.agregarAlerta('❌ Error', error.message, 'error');
-                        }
-                    }
-                }
-            });
-        });
     },
 
     renderizarMesas(mesas) {
@@ -257,7 +672,6 @@ const UI = {
             return;
         }
 
-        // Contar mesas ocupadas para el badge
         const ocupadas = mesas.filter(m => m.estado === 'ocupada').length;
         this.actualizarBadge('mesas', ocupadas);
 
@@ -270,7 +684,8 @@ const UI = {
                 <div class="mesa-item ${estado} ${tienePadre}" 
                      data-mesa-id="${mesa.id}"
                      data-mesa-numero="${mesa.numero}"
-                     data-estado="${estado}">
+                     data-estado="${estado}"
+                     onclick="UI.abrirModal('mesa', ${JSON.stringify(mesa).replace(/"/g, '&quot;')})">
                     <span class="mesa-numero">${mesa.numero}</span>
                     <span class="mesa-estado">${estado}</span>
                     ${mesa.mesa_padre_id ? '<span class="mesa-fusionada">🔗</span>' : ''}
@@ -279,28 +694,23 @@ const UI = {
         });
 
         container.innerHTML = html;
+    },
 
-        // Eventos para mesas
-        container.querySelectorAll('.mesa-item').forEach(mesa => {
-            mesa.addEventListener('click', () => {
-                const id = mesa.dataset.mesaId;
-                const numero = mesa.dataset.mesaNumero;
-                const estado = mesa.dataset.estado;
-                
-                this.agregarAlerta(
-                    '🪑 Mesa seleccionada',
-                    `Mesa ${numero} - ${estado}`,
-                    'info'
-                );
-                
-                // Aquí puedes abrir un modal con detalles de la mesa
-                console.log('Mesa click:', { id, numero, estado });
-            });
-        });
+    async cambiarEstadoPedido(pedidoId, nuevoEstado) {
+        try {
+            await API.cambiarEstadoPedido(pedidoId, nuevoEstado);
+            this.agregarAlerta(
+                '✅ Estado actualizado',
+                `Pedido #${pedidoId} ahora está ${nuevoEstado}`,
+                'success'
+            );
+            CargarDatos.cargarPedidosPendientes();
+        } catch (error) {
+            this.agregarAlerta('❌ Error', error.message, 'error');
+        }
     },
 
     // ========== ALERTAS ==========
-
     agregarAlerta(titulo, mensaje, tipo = 'info') {
         const container = document.getElementById('alertas-container');
         if (!container) return;
@@ -321,11 +731,9 @@ const UI = {
 
         container.prepend(alerta);
         
-        // Actualizar badge de alertas
         this.alertas.unshift({ id, titulo, mensaje, tipo, timestamp });
         this.actualizarBadge('alertas', this.alertas.length);
 
-        // Auto-eliminar después de un tiempo
         setTimeout(() => {
             const el = document.getElementById(id);
             if (el) {
@@ -343,7 +751,6 @@ const UI = {
             }
         }, CONFIG.alertaDuration);
 
-        // Limitar número de alertas
         if (container.children.length > CONFIG.maxAlertas) {
             container.removeChild(container.lastChild);
             this.alertas.pop();
@@ -412,6 +819,24 @@ const CargarDatos = {
         }
     },
 
+    async obtenerMesas() {
+        try {
+            return await API.getMesas();
+        } catch (error) {
+            console.error('Error obteniendo mesas:', error);
+            return [];
+        }
+    },
+
+    async cargarMenu() {
+        try {
+            return await API.getMenu();
+        } catch (error) {
+            console.error('Error cargando menú:', error);
+            return [];
+        }
+    },
+
     async verificarSalud() {
         const isHealthy = await API.checkHealth();
         if (!isHealthy) {
@@ -428,12 +853,10 @@ const CargarDatos = {
 // Iniciar todo cuando el DOM esté listo
 document.addEventListener('DOMContentLoaded', () => {
     UI.init();
-    
-    // Verificar salud del backend al inicio
     setTimeout(() => CargarDatos.verificarSalud(), 2000);
 });
 
-// Manejar errores no capturados
+// Manejar errores globales
 window.addEventListener('error', (event) => {
     console.error('Error global:', event.error);
     UI.agregarAlerta('❌ Error', 'Ha ocurrido un error inesperado', 'error');
