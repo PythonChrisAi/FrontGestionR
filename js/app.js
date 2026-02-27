@@ -133,7 +133,7 @@ const UI = {
     cargarDatosIniciales() {
         CargarDatos.cargarPedidosPendientes();
         CargarDatos.cargarMesas();
-        CargarDatos.cargarMenu(); // Cargar menú para órdenes
+        CargarDatos.cargarMenu();
     },
 
     setupRefreshIntervals() {
@@ -171,9 +171,14 @@ const UI = {
 
     // ========== MODALES ==========
     abrirModal(tipo, datos = {}) {
+        console.log('Abriendo modal:', tipo, datos);
+        
         const modalId = tipo + '-modal';
         const modal = document.getElementById(modalId);
-        if (!modal) return;
+        if (!modal) {
+            console.error('Modal no encontrado:', modalId);
+            return;
+        }
         
         const modalBody = document.getElementById(modalId.replace('modal', 'modal-body'));
         
@@ -194,7 +199,8 @@ const UI = {
 
     cerrarModal(tipo = null) {
         if (tipo) {
-            document.getElementById(tipo + '-modal').style.display = 'none';
+            const modal = document.getElementById(tipo + '-modal');
+            if (modal) modal.style.display = 'none';
         } else {
             document.querySelectorAll('.modal').forEach(modal => {
                 modal.style.display = 'none';
@@ -204,60 +210,89 @@ const UI = {
 
     // ========== RENDERIZADO DE MODALES ==========
     renderModalMesa(container, mesa) {
+        console.log('Renderizando modal mesa:', mesa);
+        console.log('Usuario actual:', this.user);
+        
         const puedeCambiarEstado = this.user && [1,2,3].includes(this.user.rol_id);
         const puedeFusionar = this.user && [1,2].includes(this.user.rol_id);
         const puedeAbrirCuenta = this.user && [1,3].includes(this.user.rol_id);
         
-        container.innerHTML = `
+        let html = `
             <div style="text-align: center; margin-bottom: 20px;">
                 <span class="mesa-numero" style="font-size: 3rem;">${mesa.numero}</span>
                 <span class="mesa-estado" style="font-size: 1.2rem; display: block; margin-top: 10px;">
                     Estado actual: <strong>${mesa.estado}</strong>
                 </span>
             </div>
+        `;
+        
+        // Solo mostrar opciones si hay usuario autenticado
+        if (this.user) {
+            if (puedeCambiarEstado) {
+                html += `
+                    <div class="form-group">
+                        <label>Cambiar Estado:</label>
+                        <select id="cambiar-estado-mesa" class="estado-select" onchange="UI.cambiarEstadoMesa(${mesa.id}, this.value)">
+                            <option value="disponible" ${mesa.estado === 'disponible' ? 'selected' : ''}>🟢 Disponible</option>
+                            <option value="ocupada" ${mesa.estado === 'ocupada' ? 'selected' : ''}>🔴 Ocupada</option>
+                            <option value="reservada" ${mesa.estado === 'reservada' ? 'selected' : ''}>🟡 Reservada</option>
+                        </select>
+                    </div>
+                `;
+            }
             
-            ${puedeCambiarEstado ? `
-                <div class="form-group">
-                    <label>Cambiar Estado:</label>
-                    <select id="cambiar-estado-mesa" class="estado-select" onchange="UI.cambiarEstadoMesa(${mesa.id}, this.value)">
-                        <option value="disponible" ${mesa.estado === 'disponible' ? 'selected' : ''}>🟢 Disponible</option>
-                        <option value="ocupada" ${mesa.estado === 'ocupada' ? 'selected' : ''}>🔴 Ocupada</option>
-                        <option value="reservada" ${mesa.estado === 'reservada' ? 'selected' : ''}>🟡 Reservada</option>
-                    </select>
-                </div>
-            ` : ''}
+            html += `<div class="btn-group">`;
             
-            <div class="btn-group">
-                ${mesa.estado === 'disponible' && puedeAbrirCuenta ? `
+            if (mesa.estado === 'disponible' && puedeAbrirCuenta) {
+                html += `
                     <button class="btn-success" onclick="UI.abrirCuentaMesa(${mesa.id}, ${mesa.numero})">
                         📝 Abrir Cuenta
                     </button>
-                ` : mesa.estado === 'ocupada' ? `
+                `;
+            } else if (mesa.estado === 'ocupada') {
+                html += `
                     <button class="btn-primary" onclick="UI.tomarOrdenMesa(${mesa.id}, ${mesa.numero})">
                         🍽️ Tomar Orden
                     </button>
                     <button class="btn-success" onclick="UI.verCuenta(${mesa.id})">
                         💰 Ver Cuenta / Pagar
                     </button>
-                ` : ''}
-                
-                ${puedeFusionar && mesa.estado !== 'ocupada' ? `
+                `;
+            }
+            
+            if (puedeFusionar && mesa.estado !== 'ocupada') {
+                html += `
                     <button class="btn-secondary" onclick="UI.iniciarFusionMesa(${mesa.id}, ${mesa.numero})">
                         🔗 Fusionar Mesas
                     </button>
-                ` : ''}
-                
+                `;
+            }
+            
+            html += `
                 <button class="btn-secondary" onclick="UI.cerrarModal('mesa')">
                     ❌ Cerrar
                 </button>
-            </div>
-            
-            ${mesa.mesa_padre_id ? `
+            </div>`;
+        } else {
+            // Usuario no autenticado - solo mostrar mensaje
+            html += `
+                <div style="text-align: center; padding: 20px;">
+                    <p>Inicia sesión para gestionar esta mesa</p>
+                    <button class="btn-primary" onclick="UI.cambiarSeccion('login')">Ir a Login</button>
+                    <button class="btn-secondary" onclick="UI.cerrarModal('mesa')">Cerrar</button>
+                </div>
+            `;
+        }
+        
+        if (mesa.mesa_padre_id) {
+            html += `
                 <div style="margin-top: 20px; padding: 10px; background: rgba(99,102,241,0.2); border-radius: 10px;">
                     <small>Esta mesa está fusionada con la mesa principal ID: ${mesa.mesa_padre_id}</small>
                 </div>
-            ` : ''}
-        `;
+            `;
+        }
+        
+        container.innerHTML = html;
     },
 
     renderModalOrden(container, datos) {
@@ -306,7 +341,6 @@ const UI = {
             </div>
         `;
         
-        // Cargar menú
         this.cargarMenuEnModal();
     },
 
@@ -387,17 +421,12 @@ const UI = {
     // ========== ACCIONES DE MESAS ==========
     async cambiarEstadoMesa(mesaId, nuevoEstado) {
         try {
-            // Nota: El backend no tiene un endpoint directo para cambiar estado de mesa
-            // Por ahora usamos una simulación o podrías implementarlo en el backend
             this.agregarAlerta(
                 'ℹ️ Información',
                 `Cambiar estado a ${nuevoEstado} - Endpoint pendiente en backend`,
                 'info'
             );
-            
-            // Temporal: Recargar mesas para simular cambio
             setTimeout(() => CargarDatos.cargarMesas(), 1000);
-            
         } catch (error) {
             this.agregarAlerta('❌ Error', error.message, 'error');
         }
@@ -427,28 +456,20 @@ const UI = {
             clientes: ['General']
         };
         
-        // Buscar cuenta activa para esta mesa
         await this.buscarCuentaActiva(mesaId);
         this.abrirModal('orden', { mesaId, mesaNumero });
     },
 
     async buscarCuentaActiva(mesaId) {
-        // Por ahora no podemos obtener la cuenta activa directamente
-        // En un futuro, el backend podría tener un endpoint para esto
-        this.ordenActual.cuentaId = 1; // Temporal - NECESITAS IMPLEMENTAR EN BACKEND
+        this.ordenActual.cuentaId = 1;
     },
 
     async verCuenta(mesaId) {
         try {
-            // Primero necesitamos obtener el ID de la cuenta activa para esta mesa
-            // Por ahora usamos un ID fijo (1) como ejemplo
-            const cuentaId = 1; // TEMPORAL - Debes obtenerlo del backend
-            
+            const cuentaId = 1;
             const cuenta = await API.getCuenta(cuentaId);
-            
-            // Agregar número de mesa para mostrar
-            cuenta.mesa_numero = document.querySelector(`[data-mesa-id="${mesaId}"]`)?.dataset.mesaNumero || '?';
-            
+            const mesaElement = document.querySelector(`[data-mesa-id="${mesaId}"]`);
+            cuenta.mesa_numero = mesaElement?.dataset.mesaNumero || '?';
             this.abrirModal('pago', cuenta);
         } catch (error) {
             this.agregarAlerta('❌ Error', error.message, 'error');
@@ -463,7 +484,6 @@ const UI = {
                 this.menuCache = await API.getMenu();
             }
             
-            // Agrupar por categoría
             const menuPorCategoria = this.menuCache.reduce((acc, item) => {
                 if (!acc[item.categoria]) {
                     acc[item.categoria] = [];
@@ -497,7 +517,6 @@ const UI = {
     agregarItemAOrden(productoId, nombre, precio) {
         const clienteActual = document.querySelector('.cliente-tab.active')?.textContent || 'General';
         
-        // Verificar si ya existe para aumentar cantidad
         const existingItem = this.ordenActual.items.find(
             item => item.producto_id === productoId && item.cliente === clienteActual
         );
@@ -584,8 +603,6 @@ const UI = {
             
             this.cerrarModal('orden');
             this.ordenActual.items = [];
-            
-            // Recargar pedidos en cocina
             CargarDatos.cargarPedidosPendientes();
             
         } catch (error) {
@@ -598,8 +615,6 @@ const UI = {
         const metodoPago = document.querySelector('input[name="metodo_pago"]:checked').value;
         
         try {
-            // Crear array de pagos (uno por cliente)
-            // Por simplicidad, pagamos todo como "General"
             const pagos = [{
                 cliente_nombre: 'General',
                 monto: totalGeneral,
@@ -675,7 +690,7 @@ const UI = {
         } else {
             this.fusionState.mesasSeleccionadas.splice(index, 1);
         }
-        this.abrirModalFusion(); // Re-render
+        this.abrirModalFusion();
     },
 
     async confirmarFusion() {
@@ -776,15 +791,13 @@ const UI = {
             const estado = mesa.estado || 'disponible';
             const tienePadre = mesa.mesa_padre_id ? 'fusionada' : '';
             
-            // Escapar para JSON
-            const mesaData = encodeURIComponent(JSON.stringify(mesa));
-            
             html += `
                 <div class="mesa-item ${estado} ${tienePadre}" 
                      data-mesa-id="${mesa.id}"
                      data-mesa-numero="${mesa.numero}"
-                     data-estado="${estado}"
-                     onclick='UI.abrirModal("mesa", ${JSON.stringify(mesa).replace(/'/g, "\\'")})'>
+                     data-mesa-estado="${estado}"
+                     data-mesa-padre="${mesa.mesa_padre_id || ''}"
+                     style="cursor: pointer;">
                     <span class="mesa-numero">${mesa.numero}</span>
                     <span class="mesa-estado">${estado}</span>
                     ${mesa.mesa_padre_id ? '<span class="mesa-fusionada">🔗</span>' : ''}
@@ -793,6 +806,24 @@ const UI = {
         });
 
         container.innerHTML = html;
+        
+        // AGREGAR EVENT LISTENERS DIRECTAMENTE
+        container.querySelectorAll('.mesa-item').forEach(item => {
+            item.addEventListener('click', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                
+                const mesaData = {
+                    id: parseInt(item.dataset.mesaId),
+                    numero: parseInt(item.dataset.mesaNumero),
+                    estado: item.dataset.mesaEstado,
+                    mesa_padre_id: item.dataset.mesaPadre ? parseInt(item.dataset.mesaPadre) : null
+                };
+                
+                console.log('Mesa clickeada:', mesaData);
+                this.abrirModal('mesa', mesaData);
+            });
+        });
     },
 
     async cambiarEstadoPedido(pedidoId, nuevoEstado) {
