@@ -634,48 +634,43 @@ UI.renderizarMesas(mesas);
         }
     },
 
-    // ========== ACCIONES DE PAGO ==========
-    async procesarPago(cuentaId, mesaNumero) {
-        const metodoPago = document.querySelector('input[name="metodo_pago"]:checked').value;
-        
-        try {
-            // Obtener la cuenta actual para saber los clientes y montos
-            console.log('Obteniendo cuenta:', cuentaId);
-            const cuenta = await API.getCuenta(cuentaId);
-            
-            // Crear un pago por cada cliente usando los montos reales
-            const pagos = cuenta.cuentas_separadas.map(cliente => ({
-                cliente_nombre: cliente.cliente_nombre,
-                monto: parseFloat(cliente.total_a_pagar),
-                metodo_pago: metodoPago
-            }));
-            
-            const pagoData = {
-                cuenta_id: cuentaId,
-                pagos: pagos
-            };
-            
-            console.log('Enviando pago:', JSON.stringify(pagoData, null, 2));
-            
-            const result = await API.procesarPago(pagoData);
-            console.log('Respuesta pago:', result);
-            
-            this.agregarAlerta(
-                '✅ Pago procesado',
-                `Mesa ${mesaNumero} liberada. Pago con ${metodoPago}`,
-                'success'
-            );
-            
-            this.cerrarModal('pago');
-            
-            // Recargar mesas para actualizar estado
-            await CargarDatos.cargarMesas();
-            
-        } catch (error) {
-            console.error('Error al procesar pago:', error);
-            this.agregarAlerta('❌ Error', error.message, 'error');
+// ========== ACCIONES DE PAGO ==========
+async procesarPago(cuentaId, mesaNumero) {
+
+    try {
+
+        const metodoPago = document.querySelector('input[name="metodo_pago"]:checked')?.value;
+
+        if (!metodoPago) {
+            throw new Error("Selecciona un método de pago");
         }
-    },
+
+        console.log('💳 Procesando pago simple:', {
+            cuenta_id: cuentaId,
+            metodo_pago: metodoPago
+        });
+
+        // 🔥 Ya NO usamos cuentas_separadas
+        const result = await API.procesarPago(cuentaId, metodoPago);
+
+        console.log('✅ Respuesta pago:', result);
+
+        this.agregarAlerta(
+            '✅ Pago procesado',
+            `Mesa ${mesaNumero} liberada. Pago con ${metodoPago}`,
+            'success'
+        );
+
+        this.cerrarModal('pago');
+
+        // Recargar mesas para actualizar estado
+        await CargarDatos.cargarMesas();
+
+    } catch (error) {
+        console.error('❌ Error al procesar pago:', error);
+        this.agregarAlerta('❌ Error', error.message, 'error');
+    }
+},
 
     // ========== ACCIONES DE FUSIÓN ==========
     iniciarFusionMesa(mesaId, mesaNumero) {
