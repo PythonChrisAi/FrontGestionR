@@ -26,6 +26,9 @@ const UI = {
     
     // Cache del menú
     menuCache: [],
+    
+    // Mapa de mesas a cuentas (simulado - en producción debería venir del backend)
+    mesaCuentaMap: new Map(),
 
     init() {
         console.log('🚀 Inicializando FrontGestionR v' + CONFIG.version);
@@ -229,7 +232,6 @@ const UI = {
         if (this.user) {
             html += `<div class="btn-group">`;
             
-            // Mostrar botones según el estado de la mesa
             if (mesa.estado === 'disponible' && puedeAbrirCuenta) {
                 html += `
                     <button class="btn-success" onclick="UI.abrirCuentaMesa(${mesa.id}, ${mesa.numero})">
@@ -244,7 +246,7 @@ const UI = {
                 `;
             }
             
-            // Botón de pago siempre visible para mesas ocupadas (para pruebas)
+            // Botón de pago siempre visible para mesas ocupadas
             if (mesa.estado === 'ocupada' && puedeVerPago) {
                 html += `
                     <button class="btn-success" onclick="UI.verCuenta(${mesa.id})">
@@ -417,6 +419,9 @@ const UI = {
             
             const result = await API.abrirCuenta(mesaId);
             
+            // Guardar la relación mesa-cuenta
+            this.mesaCuentaMap.set(mesaId, result.cuenta.id);
+            
             this.agregarAlerta(
                 '✅ Cuenta abierta',
                 `Mesa ${mesaNumero} - Cuenta #${result.cuenta.id}`,
@@ -440,7 +445,6 @@ const UI = {
                     'info'
                 );
                 
-                // Recargar mesas para obtener el estado correcto
                 await CargarDatos.cargarMesas();
                 this.cerrarModal('mesa');
                 
@@ -451,8 +455,11 @@ const UI = {
     },
 
     async tomarOrdenMesa(mesaId, mesaNumero) {
+        // Obtener el cuenta_id de la mesa
+        const cuentaId = this.mesaCuentaMap.get(mesaId) || 1; // Fallback a 1 si no existe
+        
         this.ordenActual = {
-            cuentaId: 1, // Temporal - En producción obtener cuenta real
+            cuentaId: cuentaId,
             mesaId: mesaId,
             mesaNumero,
             items: [],
@@ -464,9 +471,8 @@ const UI = {
 
     async verCuenta(mesaId) {
         try {
-            // Temporal: necesitas obtener el cuenta_id real de la mesa
-            // Por ahora usamos ID 1 para pruebas
-            const cuentaId = 1;
+            // Obtener el cuenta_id de la mesa
+            const cuentaId = this.mesaCuentaMap.get(mesaId) || 1;
             
             const cuenta = await API.getCuenta(cuentaId);
             const mesaElement = document.querySelector(`[data-mesa-id="${mesaId}"]`);
@@ -590,6 +596,11 @@ const UI = {
                 cliente_nombre: item.cliente
             }));
             
+            console.log('Enviando orden:', {
+                cuenta_id: this.ordenActual.cuentaId,
+                platillos: platillos
+            });
+            
             await API.tomarOrden(this.ordenActual.cuentaId, platillos);
             
             this.agregarAlerta(
@@ -603,6 +614,7 @@ const UI = {
             CargarDatos.cargarPedidosPendientes();
             
         } catch (error) {
+            console.error('Error al enviar orden:', error);
             this.agregarAlerta('❌ Error', error.message, 'error');
         }
     },
@@ -612,16 +624,24 @@ const UI = {
         const metodoPago = document.querySelector('input[name="metodo_pago"]:checked').value;
         
         try {
-            const pagos = [{
-                cliente_nombre: 'General',
-                monto: totalGeneral,
-                metodo_pago: metodoPago
-            }];
-            
-            await API.procesarPago({
+            const pagoData = {
                 cuenta_id: cuentaId,
-                pagos: pagos
-            });
+                pagos: [{
+                    cliente_nombre: 'General',
+                    monto: parseFloat(totalGeneral),
+                    metodo_pago: metodoPago
+                }]
+            };
+            
+            console.log('Enviando pago:', pagoData);
+            
+            await API.procesarPago(pagoData);
+            
+            // Limpiar el mapa para esta mesa
+            const mesaId = this.ordenActual.mesaId;
+            if (mesaId) {
+                this.mesaCuentaMap.delete(mesaId);
+            }
             
             this.agregarAlerta(
                 '✅ Pago procesado',
@@ -635,6 +655,7 @@ const UI = {
             await CargarDatos.cargarMesas();
             
         } catch (error) {
+            console.error('Error al procesar pago:', error);
             this.agregarAlerta('❌ Error', error.message, 'error');
         }
     },
