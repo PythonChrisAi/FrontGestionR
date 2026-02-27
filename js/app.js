@@ -26,12 +26,6 @@ const UI = {
     
     // Cache del menú
     menuCache: [],
-    
-    // Mapa de mesas a cuentas (guardamos la relación después de abrir cuenta)
-    mesaCuentaMap: new Map(),
-    
-    // Contador para IDs de cuenta simulados
-    nextCuentaId: 100,
 
     init() {
         console.log('🚀 Inicializando FrontGestionR v' + CONFIG.version);
@@ -42,46 +36,12 @@ const UI = {
         this.setupEventListeners();
         this.cargarDatosIniciales();
         this.setupRefreshIntervals();
-        this.sincronizarCuentas();
         
         this.agregarAlerta(
             '🎉 Bienvenido',
             'FrontGestionR conectado al sistema',
             'info'
         );
-    },
-
-    async sincronizarCuentas() {
-        try {
-            const mesas = await API.getMesas();
-            const mesasOcupadas = mesas.filter(m => m.estado === 'ocupada');
-            
-            console.log('Mesas ocupadas en backend:', mesasOcupadas.map(m => m.numero));
-            console.log('Mapa actual antes de sincronizar:', Array.from(this.mesaCuentaMap.entries()));
-            
-            // Limpiar del mapa las mesas que ya no están ocupadas
-            const mesasIdsOcupadas = new Set(mesasOcupadas.map(m => m.id));
-            for (let [mesaId, cuentaId] of this.mesaCuentaMap.entries()) {
-                if (!mesasIdsOcupadas.has(mesaId)) {
-                    console.log(`🗑️ Eliminando del mapa: Mesa ${mesaId} (ya no está ocupada)`);
-                    this.mesaCuentaMap.delete(mesaId);
-                }
-            }
-            
-            // Si hay mesas ocupadas sin cuenta en el mapa, crear cuentas simuladas
-            for (const mesa of mesasOcupadas) {
-                if (!this.mesaCuentaMap.has(mesa.id)) {
-                    const cuentaId = this.nextCuentaId++;
-                    this.mesaCuentaMap.set(mesa.id, cuentaId);
-                    console.log(`✅ Cuenta simulada creada: Mesa ${mesa.numero} → Cuenta #${cuentaId}`);
-                }
-            }
-            
-            console.log('Mapa después de sincronizar:', Array.from(this.mesaCuentaMap.entries()));
-            
-        } catch (error) {
-            console.error('Error sincronizando cuentas:', error);
-        }
     },
 
     checkAuth() {
@@ -257,14 +217,11 @@ const UI = {
         const puedeAbrirCuenta = this.user && [1,3].includes(this.user.rol_id);
         const puedeVerPago = this.user && [1,2,3].includes(this.user.rol_id);
         
-        const tieneCuenta = this.mesaCuentaMap.has(mesa.id);
-        
         let html = `
             <div style="text-align: center; margin-bottom: 20px;">
                 <span class="mesa-numero" style="font-size: 3rem;">${mesa.numero}</span>
                 <span class="mesa-estado" style="font-size: 1.2rem; display: block; margin-top: 10px;">
                     Estado actual: <strong>${mesa.estado}</strong>
-                    ${tieneCuenta ? '<br><small style="color: #10b981;">✓ Cuenta #' + this.mesaCuentaMap.get(mesa.id) + '</small>' : ''}
                 </span>
             </div>
         `;
@@ -280,7 +237,7 @@ const UI = {
                 `;
             }
             
-            if (mesa.estado === 'ocupada' || tieneCuenta) {
+            if (mesa.estado === 'ocupada') {
                 if (puedeVerPago) {
                     html += `
                         <button class="btn-primary" onclick="UI.tomarOrdenMesa(${mesa.id}, ${mesa.numero})">
@@ -290,10 +247,10 @@ const UI = {
                 }
             }
             
-            if (tieneCuenta && puedeVerPago) {
+            if (mesa.estado === 'ocupada' && puedeVerPago) {
                 html += `
                     <button class="btn-success" onclick="UI.verCuenta(${mesa.id})">
-                        💰 Pagar Cuenta (Cuenta #${this.mesaCuentaMap.get(mesa.id)})
+                        💰 Ver Cuenta / Pagar
                     </button>
                 `;
             }
@@ -337,48 +294,59 @@ const UI = {
         this.ordenActual.mesaId = mesaId;
         this.ordenActual.mesaNumero = mesaNumero;
         
-        container.innerHTML = `
-            <h3>Mesa ${mesaNumero} - Tomar Orden</h3>
+        // Primero necesitamos obtener el cuenta_id de esta mesa
+        this.obtenerCuentaIdPorMesa(mesaId).then(cuentaId => {
+            if (!cuentaId) {
+                this.agregarAlerta('❌ Error', 'No hay cuenta activa para esta mesa', 'error');
+                this.cerrarModal('orden');
+                return;
+            }
             
-            <div class="form-group">
-                <label>Seleccionar Cliente:</label>
-                <div class="cliente-tabs" id="cliente-tabs">
-                    ${this.ordenActual.clientes.map((cliente, idx) => `
-                        <span class="cliente-tab ${idx === 0 ? 'active' : ''}" 
-                              onclick="UI.seleccionarCliente(${idx})">
-                            ${cliente}
-                            ${idx > 0 ? '<span class="badge" onclick="UI.eliminarCliente(event, ' + idx + ')">×</span>' : ''}
-                        </span>
-                    `).join('')}
-                    <button class="btn-agregar-cliente" onclick="UI.agregarCliente()">+ Agregar</button>
+            this.ordenActual.cuentaId = cuentaId;
+            
+            container.innerHTML = `
+                <h3>Mesa ${mesaNumero} - Tomar Orden (Cuenta #${cuentaId})</h3>
+                
+                <div class="form-group">
+                    <label>Seleccionar Cliente:</label>
+                    <div class="cliente-tabs" id="cliente-tabs">
+                        ${this.ordenActual.clientes.map((cliente, idx) => `
+                            <span class="cliente-tab ${idx === 0 ? 'active' : ''}" 
+                                  onclick="UI.seleccionarCliente(${idx})">
+                                ${cliente}
+                                ${idx > 0 ? '<span class="badge" onclick="UI.eliminarCliente(event, ' + idx + ')">×</span>' : ''}
+                            </span>
+                        `).join('')}
+                        <button class="btn-agregar-cliente" onclick="UI.agregarCliente()">+ Agregar</button>
+                    </div>
                 </div>
-            </div>
-            
-            <div class="form-group">
-                <label>Platillos:</label>
-                <div class="platillos-lista" id="platillos-lista">
-                    <div class="loading-spinner" style="padding: 20px;">Cargando menú...</div>
+                
+                <div class="form-group">
+                    <label>Platillos:</label>
+                    <div class="platillos-lista" id="platillos-lista">
+                        <div class="loading-spinner" style="padding: 20px;">Cargando menú...</div>
+                    </div>
                 </div>
-            </div>
-            
-            <div class="form-group">
-                <label>Orden Actual:</label>
-                <div class="orden-actual-items" id="orden-actual-items">
-                    ${this.renderOrdenActualItems()}
+                
+                <div class="form-group">
+                    <label>Orden Actual:</label>
+                    <div class="orden-actual-items" id="orden-actual-items">
+                        ${this.renderOrdenActualItems()}
+                    </div>
                 </div>
-            </div>
+                
+                <div class="btn-group">
+                    <button class="btn-success" onclick="UI.enviarOrden()" ${this.ordenActual.items.length === 0 ? 'disabled' : ''}>
+                        ✅ Enviar a Cocina
+                    </button>
+                    <button class="btn-secondary" onclick="UI.cerrarModal('orden')">
+                        ❌ Cancelar
+                    </button>
+                </div>
+            `;
             
-            <div class="btn-group">
-                <button class="btn-success" onclick="UI.enviarOrden()" ${this.ordenActual.items.length === 0 ? 'disabled' : ''}>
-                    ✅ Enviar a Cocina
-                </button>
-                <button class="btn-secondary" onclick="UI.cerrarModal('orden')">
-                    ❌ Cancelar
-                </button>
-            </div>
-        `;
-        
-        this.cargarMenuEnModal();
+            this.cargarMenuEnModal();
+        });
     },
 
     renderModalPago(container, cuenta) {
@@ -425,7 +393,7 @@ const UI = {
             </div>
             
             <div class="btn-group">
-                <button class="btn-success" onclick="UI.procesarPagoSimulado(${cuenta.cuenta_id}, ${cuenta.mesa_numero})">
+                <button class="btn-success" onclick="UI.procesarPago(${cuenta.cuenta_id}, ${cuenta.mesa_numero})">
                     ✅ Pagar $${parseFloat(cuenta.gran_total || 0).toFixed(2)}
                 </button>
                 <button class="btn-secondary" onclick="UI.cerrarModal('pago')">
@@ -455,27 +423,40 @@ const UI = {
         `).join('');
     },
 
+    // ========== FUNCIÓN PARA OBTENER CUENTA ID DESDE EL BACKEND ==========
+    async obtenerCuentaIdPorMesa(mesaId) {
+        try {
+            // Obtener todas las cuentas activas (necesitarías un endpoint en el backend)
+            // Por ahora, usamos un enfoque alternativo: buscar en pedidos pendientes
+            const pedidos = await API.getPedidosPendientes();
+            
+            // Buscar un pedido que pertenezca a esta mesa
+            const pedidoMesa = pedidos.find(p => p.mesa_numero == mesaId);
+            
+            if (pedidoMesa) {
+                // Necesitamos obtener el cuenta_id de ese pedido
+                // Esto requeriría un endpoint adicional en el backend
+                console.log('Pedido encontrado para mesa:', pedidoMesa);
+                
+                // Por ahora, devolvemos un ID fijo para pruebas
+                // EN PRODUCCIÓN: Debes crear un endpoint en el backend que devuelva la cuenta activa por mesa
+                return 1; // Temporal
+            }
+            
+            return null;
+        } catch (error) {
+            console.error('Error obteniendo cuenta_id:', error);
+            return null;
+        }
+    },
+
     // ========== ACCIONES DE MESAS ==========
     async abrirCuentaMesa(mesaId, mesaNumero) {
         try {
             console.log('Intentando abrir cuenta para mesa:', mesaId);
             
-            // Intentar con el API real
-            let cuentaId;
-            try {
-                const result = await API.abrirCuenta(mesaId);
-                cuentaId = result.cuenta.id;
-            } catch (apiError) {
-                console.log('API falló, usando cuenta simulada:', apiError);
-                // Si el API falla, usar cuenta simulada
-                cuentaId = this.nextCuentaId++;
-            }
-            
-            // Guardar la relación mesa-cuenta
-            this.mesaCuentaMap.set(mesaId, cuentaId);
-            
-            console.log('✅ Relación guardada: Mesa', mesaId, '→ Cuenta', cuentaId);
-            console.log('Mapa actual:', Array.from(this.mesaCuentaMap.entries()));
+            const result = await API.abrirCuenta(mesaId);
+            const cuentaId = result.cuenta.id;
             
             this.agregarAlerta(
                 '✅ Cuenta abierta',
@@ -490,115 +471,55 @@ const UI = {
             
         } catch (error) {
             console.error('Error al abrir cuenta:', error);
-            this.agregarAlerta('❌ Error', error.message, 'error');
+            
+            const errorMsg = error.message || '';
+            
+            if (errorMsg.includes('ya tiene una cuenta')) {
+                this.agregarAlerta(
+                    'ℹ️ Información',
+                    'Esta mesa ya tenía una cuenta. Actualizando estado...',
+                    'info'
+                );
+                
+                await CargarDatos.cargarMesas();
+                this.cerrarModal('mesa');
+                
+            } else {
+                this.agregarAlerta('❌ Error', errorMsg, 'error');
+            }
         }
     },
 
     async tomarOrdenMesa(mesaId, mesaNumero) {
-        const cuentaId = this.mesaCuentaMap.get(mesaId);
-        
-        console.log('Tomar orden para mesa:', mesaId);
-        console.log('Cuenta encontrada:', cuentaId);
-        console.log('Mapa actual:', Array.from(this.mesaCuentaMap.entries()));
-        
-        if (!cuentaId) {
-            this.agregarAlerta(
-                '❌ Error',
-                'No hay cuenta activa para esta mesa. Primero debes abrir una cuenta.',
-                'error'
-            );
-            return;
-        }
-        
-        this.ordenActual = {
-            cuentaId: cuentaId,
-            mesaId: mesaId,
-            mesaNumero,
-            items: [],
-            clientes: ['General']
-        };
-        
         this.abrirModal('orden', { mesaId, mesaNumero });
     },
 
     async verCuenta(mesaId) {
         try {
-            const cuentaId = this.mesaCuentaMap.get(mesaId);
+            // Por ahora, necesitamos obtener el cuenta_id de alguna manera
+            // Esto debería venir del backend - NECESITAS UN ENDPOINT
+            const cuentaId = 1; // Temporal - Reemplazar con llamada real al backend
             
-            console.log('Ver cuenta para mesa:', mesaId);
-            console.log('Cuenta encontrada:', cuentaId);
-            console.log('Mapa actual:', Array.from(this.mesaCuentaMap.entries()));
+            console.log('Ver cuenta para mesa:', mesaId, 'con cuenta_id:', cuentaId);
             
-            if (!cuentaId) {
-                // Si no hay cuenta, crear una simulada
-                const nuevaCuentaId = this.nextCuentaId++;
-                this.mesaCuentaMap.set(mesaId, nuevaCuentaId);
-                
-                this.agregarAlerta(
-                    'ℹ️ Cuenta simulada',
-                    `Se creó cuenta #${nuevaCuentaId} para la mesa ${mesaId}`,
-                    'info'
-                );
-                
-                const cuentaSimulada = {
-                    cuenta_id: nuevaCuentaId,
-                    mesa_numero: mesaId,
-                    gran_total: 250.00,
-                    cuentas_separadas: [
-                        {
-                            cliente_nombre: 'Cliente 1',
-                            total_a_pagar: 150.00,
-                            detalle: [
-                                { platillo: 'Hamburguesa', cantidad: 1, precio_unitario: 150.00 }
-                            ]
-                        },
-                        {
-                            cliente_nombre: 'Cliente 2',
-                            total_a_pagar: 100.00,
-                            detalle: [
-                                { platillo: 'Refresco', cantidad: 2, precio_unitario: 35.00 },
-                                { platillo: 'Papas', cantidad: 1, precio_unitario: 30.00 }
-                            ]
-                        }
-                    ]
-                };
-                
-                this.abrirModal('pago', cuentaSimulada);
-                return;
-            }
+            const cuenta = await API.getCuenta(cuentaId);
+            cuenta.mesa_numero = mesaId;
             
-            // Intentar obtener la cuenta del API
-            try {
-                const cuenta = await API.getCuenta(cuentaId);
-                cuenta.mesa_numero = mesaId;
-                this.abrirModal('pago', cuenta);
-            } catch (apiError) {
-                console.log('API falló, usando datos simulados:', apiError);
-                
-                // Crear datos simulados para la cuenta
-                const cuentaSimulada = {
-                    cuenta_id: cuentaId,
-                    mesa_numero: mesaId,
-                    gran_total: 350.00,
-                    cuentas_separadas: [
-                        {
-                            cliente_nombre: 'General',
-                            total_a_pagar: 350.00,
-                            detalle: [
-                                { platillo: 'Hamburguesa', cantidad: 2, precio_unitario: 150.00 },
-                                { platillo: 'Refresco', cantidad: 2, precio_unitario: 35.00 },
-                                { platillo: 'Postre', cantidad: 1, precio_unitario: 60.00 }
-                            ]
-                        }
-                    ]
-                };
-                
-                this.abrirModal('pago', cuentaSimulada);
-            }
+            this.abrirModal('pago', cuenta);
             
         } catch (error) {
             console.error('Error al ver cuenta:', error);
-            this.agregarAlerta('❌ Error', error.message, 'error');
+            
+            if (error.message.includes('no encontrada')) {
+                this.agregarAlerta(
+                    'ℹ️ Información',
+                    'No hay cuenta activa para esta mesa',
+                    'info'
+                );
+                await CargarDatos.cargarMesas();
+            } else {
+                this.agregarAlerta('❌ Error', error.message, 'error');
+            }
         }
     },
 
@@ -607,17 +528,7 @@ const UI = {
         const container = document.getElementById('platillos-lista');
         try {
             if (this.menuCache.length === 0) {
-                try {
-                    this.menuCache = await API.getMenu();
-                } catch (error) {
-                    console.log('Usando menú simulado');
-                    this.menuCache = [
-                        { id: 1, nombre: 'Hamburguesa', precio: 150.00, categoria: 'Platos', descripcion: 'Con queso y papas' },
-                        { id: 2, nombre: 'Refresco', precio: 35.00, categoria: 'Bebidas', descripcion: '600ml' },
-                        { id: 3, nombre: 'Papas', precio: 30.00, categoria: 'Entradas', descripcion: 'Con salsa' },
-                        { id: 4, nombre: 'Postre', precio: 60.00, categoria: 'Postres', descripcion: 'Flan napolitano' }
-                    ];
-                }
+                this.menuCache = await API.getMenu();
             }
             
             const menuPorCategoria = this.menuCache.reduce((acc, item) => {
@@ -724,19 +635,9 @@ const UI = {
                 cliente_nombre: item.cliente
             }));
             
-            const ordenData = {
-                cuenta_id: this.ordenActual.cuentaId,
-                platillos: platillos
-            };
+            console.log('Enviando orden a cuenta:', this.ordenActual.cuentaId);
             
-            console.log('Enviando orden:', JSON.stringify(ordenData, null, 2));
-            
-            // Intentar enviar al API
-            try {
-                await API.tomarOrden(this.ordenActual.cuentaId, platillos);
-            } catch (apiError) {
-                console.log('API falló, orden simulada:', apiError);
-            }
+            await API.tomarOrden(this.ordenActual.cuentaId, platillos);
             
             this.agregarAlerta(
                 '✅ Orden enviada',
@@ -754,47 +655,35 @@ const UI = {
         }
     },
 
-    // ========== ACCIONES DE PAGO SIMULADO ==========
-    async procesarPagoSimulado(cuentaId, mesaNumero) {
+    // ========== ACCIONES DE PAGO ==========
+    async procesarPago(cuentaId, mesaNumero) {
         const metodoPago = document.querySelector('input[name="metodo_pago"]:checked').value;
         
         try {
-            console.log('Procesando pago simulado:', { cuentaId, metodoPago });
+            // Obtener la cuenta actual para saber los clientes y montos
+            console.log('Obteniendo cuenta:', cuentaId);
+            const cuenta = await API.getCuenta(cuentaId);
             
-            // Buscar la mesa asociada a esta cuenta
-            let mesaId = null;
-            for (let [key, value] of this.mesaCuentaMap.entries()) {
-                if (value === cuentaId) {
-                    mesaId = key;
-                    break;
-                }
-            }
+            // Crear un pago por cada cliente usando los montos reales
+            const pagos = cuenta.cuentas_separadas.map(cliente => ({
+                cliente_nombre: cliente.cliente_nombre,
+                monto: parseFloat(cliente.total_a_pagar),
+                metodo_pago: metodoPago
+            }));
             
-            if (mesaId) {
-                console.log('Mesa encontrada:', mesaId);
-                
-                // Limpiar el mapa para esta mesa
-                this.mesaCuentaMap.delete(mesaId);
-                console.log('Mapa actualizado después de pago:', Array.from(this.mesaCuentaMap.entries()));
-                
-                // Intentar liberar la mesa en el backend (si existe el endpoint)
-                try {
-                    // Si tuvieras un endpoint para liberar mesa, lo llamarías aquí
-                    // await API.liberarMesa(mesaId);
-                    console.log('Mesa liberada en backend');
-                } catch (backendError) {
-                    console.log('No se pudo liberar en backend, continuando con frontend');
-                }
-            }
+            const pagoData = {
+                cuenta_id: cuentaId,
+                pagos: pagos
+            };
             
-            // Obtener el total del modal para mostrarlo
-            const totalElement = document.querySelector('.cuenta-total');
-            const totalText = totalElement ? totalElement.textContent : 'TOTAL GENERAL: $0';
-            const total = totalText.replace('TOTAL GENERAL: $', '').trim();
+            console.log('Enviando pago:', JSON.stringify(pagoData, null, 2));
+            
+            const result = await API.procesarPago(pagoData);
+            console.log('Respuesta pago:', result);
             
             this.agregarAlerta(
-                '✅ Pago exitoso',
-                `Pago de $${total} procesado con ${metodoPago}. Mesa ${mesaNumero} liberada.`,
+                '✅ Pago procesado',
+                `Mesa ${mesaNumero} liberada. Pago con ${metodoPago}`,
                 'success'
             );
             
@@ -802,12 +691,6 @@ const UI = {
             
             // Recargar mesas para actualizar estado
             await CargarDatos.cargarMesas();
-            
-            // Forzar actualización del mapa después de recargar mesas
-            setTimeout(async () => {
-                await this.sincronizarCuentas();
-                console.log('Mapa después de sincronizar:', Array.from(this.mesaCuentaMap.entries()));
-            }, 1000);
             
         } catch (error) {
             console.error('Error al procesar pago:', error);
@@ -961,8 +844,6 @@ const UI = {
         mesas.forEach(mesa => {
             const estado = mesa.estado || 'disponible';
             const tienePadre = mesa.mesa_padre_id ? 'fusionada' : '';
-            const tieneCuenta = this.mesaCuentaMap.has(mesa.id);
-            const cuentaId = this.mesaCuentaMap.get(mesa.id);
             
             html += `
                 <div class="mesa-item ${estado} ${tienePadre}" 
@@ -970,12 +851,9 @@ const UI = {
                      data-mesa-numero="${mesa.numero}"
                      data-mesa-estado="${estado}"
                      data-mesa-padre="${mesa.mesa_padre_id || ''}"
-                     data-tiene-cuenta="${tieneCuenta}"
-                     data-cuenta-id="${cuentaId || ''}"
-                     style="cursor: pointer; ${tieneCuenta ? 'border: 2px solid #10b981;' : ''}">
+                     style="cursor: pointer;">
                     <span class="mesa-numero">${mesa.numero}</span>
                     <span class="mesa-estado">${estado}</span>
-                    ${tieneCuenta ? '<span class="mesa-fusionada" title="Cuenta #' + cuentaId + '">💰</span>' : ''}
                     ${mesa.mesa_padre_id ? '<span class="mesa-fusionada">🔗</span>' : ''}
                 </div>
             `;
@@ -1086,17 +964,7 @@ const CargarDatos = {
 
         try {
             container.innerHTML = '<div class="loading-spinner">Cargando órdenes...</div>';
-            let pedidos;
-            try {
-                pedidos = await API.getPedidosPendientes();
-            } catch (error) {
-                console.log('Usando pedidos simulados');
-                pedidos = [
-                    { pedido_id: 1, mesa_numero: 5, platillo: 'Hamburguesa', cantidad: 2, estado: 'preparando', creado_en: new Date() },
-                    { pedido_id: 2, mesa_numero: 5, platillo: 'Refresco', cantidad: 2, estado: 'pendiente', creado_en: new Date() },
-                    { pedido_id: 3, mesa_numero: 3, platillo: 'Papas', cantidad: 1, estado: 'listo', creado_en: new Date() }
-                ];
-            }
+            const pedidos = await API.getPedidosPendientes();
             UI.renderizarOrdenes(pedidos);
         } catch (error) {
             console.error('Error cargando pedidos:', error);
@@ -1111,24 +979,8 @@ const CargarDatos = {
 
         try {
             container.innerHTML = '<div class="loading-spinner">Cargando mesas...</div>';
-            let mesas;
-            try {
-                mesas = await API.getMesas();
-            } catch (error) {
-                console.log('Usando mesas simuladas');
-                mesas = [
-                    { id: 1, numero: 1, estado: 'ocupada', mesa_padre_id: null },
-                    { id: 2, numero: 2, estado: 'disponible', mesa_padre_id: null },
-                    { id: 3, numero: 3, estado: 'disponible', mesa_padre_id: null },
-                    { id: 4, numero: 4, estado: 'ocupada', mesa_padre_id: null },
-                    { id: 5, numero: 5, estado: 'disponible', mesa_padre_id: null }
-                ];
-            }
+            const mesas = await API.getMesas();
             UI.renderizarMesas(mesas);
-            
-            // Sincronizar cuentas después de cargar mesas
-            await UI.sincronizarCuentas();
-            
         } catch (error) {
             console.error('Error cargando mesas:', error);
             container.innerHTML = '<div class="empty-state">Error al cargar mesas</div>';
@@ -1140,12 +992,8 @@ const CargarDatos = {
         try {
             return await API.getMesas();
         } catch (error) {
-            console.log('Usando mesas simuladas para fusión');
-            return [
-                { id: 1, numero: 1, estado: 'disponible' },
-                { id: 2, numero: 2, estado: 'disponible' },
-                { id: 3, numero: 3, estado: 'disponible' }
-            ];
+            console.error('Error obteniendo mesas:', error);
+            return [];
         }
     },
 
@@ -1154,13 +1002,8 @@ const CargarDatos = {
             UI.menuCache = await API.getMenu();
             return UI.menuCache;
         } catch (error) {
-            console.log('Usando menú simulado');
-            UI.menuCache = [
-                { id: 1, nombre: 'Hamburguesa', precio: 150.00, categoria: 'Platos', descripcion: 'Con queso y papas' },
-                { id: 2, nombre: 'Refresco', precio: 35.00, categoria: 'Bebidas', descripcion: '600ml' },
-                { id: 3, nombre: 'Papas', precio: 30.00, categoria: 'Entradas', descripcion: 'Con salsa' }
-            ];
-            return UI.menuCache;
+            console.error('Error cargando menú:', error);
+            return [];
         }
     },
 
@@ -1168,9 +1011,9 @@ const CargarDatos = {
         const isHealthy = await API.checkHealth();
         if (!isHealthy) {
             UI.agregarAlerta(
-                '⚠️ Modo demostración',
-                'Usando datos simulados - Backend no disponible',
-                'info'
+                '⚠️ Problema de conexión',
+                'No se puede conectar con el backend',
+                'error'
             );
         }
         return isHealthy;
