@@ -213,9 +213,9 @@ const UI = {
         console.log('Renderizando modal mesa:', mesa);
         console.log('Usuario actual:', this.user);
         
-        const puedeCambiarEstado = this.user && [1,2,3].includes(this.user.rol_id);
         const puedeFusionar = this.user && [1,2].includes(this.user.rol_id);
         const puedeAbrirCuenta = this.user && [1,3].includes(this.user.rol_id);
+        const puedeVerPago = this.user && [1,2,3].includes(this.user.rol_id);
         
         let html = `
             <div style="text-align: center; margin-bottom: 20px;">
@@ -227,19 +227,6 @@ const UI = {
         `;
         
         if (this.user) {
-            if (puedeCambiarEstado) {
-                html += `
-                    <div class="form-group">
-                        <label>Cambiar Estado:</label>
-                        <select id="cambiar-estado-mesa" class="estado-select" onchange="UI.cambiarEstadoMesa(${mesa.id}, this.value)">
-                            <option value="disponible" ${mesa.estado === 'disponible' ? 'selected' : ''}>🟢 Disponible</option>
-                            <option value="ocupada" ${mesa.estado === 'ocupada' ? 'selected' : ''}>🔴 Ocupada</option>
-                            <option value="reservada" ${mesa.estado === 'reservada' ? 'selected' : ''}>🟡 Reservada</option>
-                        </select>
-                    </div>
-                `;
-            }
-            
             html += `<div class="btn-group">`;
             
             // Mostrar botones según el estado de la mesa
@@ -254,8 +241,14 @@ const UI = {
                     <button class="btn-primary" onclick="UI.tomarOrdenMesa(${mesa.id}, ${mesa.numero})">
                         🍽️ Tomar Orden
                     </button>
+                `;
+            }
+            
+            // Botón de pago siempre visible para mesas ocupadas (para pruebas)
+            if (mesa.estado === 'ocupada' && puedeVerPago) {
+                html += `
                     <button class="btn-success" onclick="UI.verCuenta(${mesa.id})">
-                        💰 Ver Cuenta / Pagar
+                        💰 Pagar Cuenta
                     </button>
                 `;
             }
@@ -391,7 +384,7 @@ const UI = {
                     ✅ Procesar Pago Total
                 </button>
                 <button class="btn-secondary" onclick="UI.cerrarModal('pago')">
-                    ❌ Cerrar
+                    ❌ Cancelar
                 </button>
             </div>
         `;
@@ -418,19 +411,6 @@ const UI = {
     },
 
     // ========== ACCIONES DE MESAS ==========
-    async cambiarEstadoMesa(mesaId, nuevoEstado) {
-        try {
-            this.agregarAlerta(
-                'ℹ️ Información',
-                `Cambiar estado a ${nuevoEstado} - Endpoint pendiente en backend`,
-                'info'
-            );
-            setTimeout(() => CargarDatos.cargarMesas(), 1000);
-        } catch (error) {
-            this.agregarAlerta('❌ Error', error.message, 'error');
-        }
-    },
-
     async abrirCuentaMesa(mesaId, mesaNumero) {
         try {
             console.log('Intentando abrir cuenta para mesa:', mesaId);
@@ -446,52 +426,47 @@ const UI = {
             this.cerrarModal('mesa');
             
             // Recargar mesas para actualizar el estado
-            setTimeout(() => {
-                CargarDatos.cargarMesas();
-            }, 500);
+            await CargarDatos.cargarMesas();
             
         } catch (error) {
             console.error('Error al abrir cuenta:', error);
             
-            if (error.message.includes('ya tiene una cuenta abierta')) {
+            const errorMsg = error.message || '';
+            
+            if (errorMsg.includes('ya tiene una cuenta')) {
                 this.agregarAlerta(
                     'ℹ️ Información',
-                    'Esta mesa ya tenía una cuenta abierta. Actualizando estado...',
+                    'Esta mesa ya tenía una cuenta. Actualizando estado...',
                     'info'
                 );
                 
-                // Forzar recarga de mesas para sincronizar
+                // Recargar mesas para obtener el estado correcto
                 await CargarDatos.cargarMesas();
                 this.cerrarModal('mesa');
+                
             } else {
-                this.agregarAlerta('❌ Error', error.message, 'error');
+                this.agregarAlerta('❌ Error', errorMsg, 'error');
             }
         }
     },
 
     async tomarOrdenMesa(mesaId, mesaNumero) {
         this.ordenActual = {
-            cuentaId: null,
+            cuentaId: 1, // Temporal - En producción obtener cuenta real
             mesaId: mesaId,
             mesaNumero,
             items: [],
             clientes: ['General']
         };
         
-        await this.buscarCuentaActiva(mesaId);
         this.abrirModal('orden', { mesaId, mesaNumero });
-    },
-
-    async buscarCuentaActiva(mesaId) {
-        // Por ahora no podemos obtener la cuenta activa directamente del backend
-        // Usamos un ID temporal - En producción necesitarías un endpoint que devuelva la cuenta activa por mesa
-        this.ordenActual.cuentaId = 1; // Temporal
     },
 
     async verCuenta(mesaId) {
         try {
             // Temporal: necesitas obtener el cuenta_id real de la mesa
-            const cuentaId = 1; // Esto debería obtenerse del backend
+            // Por ahora usamos ID 1 para pruebas
+            const cuentaId = 1;
             
             const cuenta = await API.getCuenta(cuentaId);
             const mesaElement = document.querySelector(`[data-mesa-id="${mesaId}"]`);
@@ -608,11 +583,6 @@ const UI = {
     },
 
     async enviarOrden() {
-        if (!this.ordenActual.cuentaId) {
-            this.agregarAlerta('❌ Error', 'No hay cuenta activa para esta mesa', 'error');
-            return;
-        }
-        
         try {
             const platillos = this.ordenActual.items.map(item => ({
                 producto_id: item.producto_id,
@@ -662,9 +632,7 @@ const UI = {
             this.cerrarModal('pago');
             
             // Recargar mesas para actualizar estado
-            setTimeout(() => {
-                CargarDatos.cargarMesas();
-            }, 500);
+            await CargarDatos.cargarMesas();
             
         } catch (error) {
             this.agregarAlerta('❌ Error', error.message, 'error');
@@ -682,7 +650,14 @@ const UI = {
     },
 
     async abrirModalFusion() {
-        const modalBody = document.getElementById('modal-body');
+        const modal = document.getElementById('mesa-modal');
+        const modalBody = document.getElementById('mesa-modal-body');
+        
+        if (!modal || !modalBody) {
+            console.error('Modal no encontrado');
+            return;
+        }
+        
         const mesas = await CargarDatos.obtenerMesas();
         
         modalBody.innerHTML = `
@@ -705,13 +680,13 @@ const UI = {
                         ${this.fusionState.mesasSeleccionadas.length === 0 ? 'disabled' : ''}>
                     🔗 Confirmar Fusión
                 </button>
-                <button class="btn-secondary" onclick="UI.cerrarModal()">
+                <button class="btn-secondary" onclick="UI.cerrarModal('mesa')">
                     ❌ Cancelar
                 </button>
             </div>
         `;
         
-        document.getElementById('mesa-modal').style.display = 'flex';
+        modal.style.display = 'flex';
     },
 
     toggleMesaFusion(mesaId) {
@@ -737,8 +712,8 @@ const UI = {
                 'success'
             );
             
-            this.cerrarModal();
-            CargarDatos.cargarMesas();
+            this.cerrarModal('mesa');
+            await CargarDatos.cargarMesas();
             
         } catch (error) {
             this.agregarAlerta('❌ Error', error.message, 'error');
@@ -772,28 +747,17 @@ const UI = {
             const primerPedido = pedidos[0];
             const tiempo = new Date(primerPedido.creado_en).toLocaleTimeString();
             
-            const tieneListos = pedidos.some(p => p.estado === 'listo');
-            const claseEstado = tieneListos ? 'estado-listo' : '';
-
             html += `
-                <div class="orden-item ${claseEstado}" data-mesa="${mesa}">
+                <div class="orden-item" data-mesa="${mesa}">
                     <div class="orden-header">
                         <span class="orden-mesa">🍽️ Mesa ${mesa}</span>
                         <span class="orden-tiempo">🕐 ${tiempo}</span>
                     </div>
                     <div class="orden-platillos">
                         ${pedidos.map(p => `
-                            <span class="platillo-tag" data-pedido-id="${p.pedido_id}" data-estado="${p.estado}">
+                            <span class="platillo-tag">
                                 ${p.cantidad}× ${p.platillo}
                                 <span class="estado-badge estado-${p.estado}">${p.estado}</span>
-                                ${this.user && [1,4].includes(this.user.rol_id) ? `
-                                    <select class="estado-select" onchange="UI.cambiarEstadoPedido(${p.pedido_id}, this.value)" style="margin-left: 5px;">
-                                        <option value="pendiente" ${p.estado === 'pendiente' ? 'selected' : ''}>Pendiente</option>
-                                        <option value="preparando" ${p.estado === 'preparando' ? 'selected' : ''}>Preparando</option>
-                                        <option value="listo" ${p.estado === 'listo' ? 'selected' : ''}>Listo</option>
-                                        <option value="entregado" ${p.estado === 'entregado' ? 'selected' : ''}>Entregado</option>
-                                    </select>
-                                ` : ''}
                             </span>
                         `).join('')}
                     </div>
@@ -854,20 +818,6 @@ const UI = {
                 this.abrirModal('mesa', mesaData);
             });
         });
-    },
-
-    async cambiarEstadoPedido(pedidoId, nuevoEstado) {
-        try {
-            await API.cambiarEstadoPedido(pedidoId, nuevoEstado);
-            this.agregarAlerta(
-                '✅ Estado actualizado',
-                `Pedido #${pedidoId} ahora está ${nuevoEstado}`,
-                'success'
-            );
-            CargarDatos.cargarPedidosPendientes();
-        } catch (error) {
-            this.agregarAlerta('❌ Error', error.message, 'error');
-        }
     },
 
     // ========== ALERTAS ==========
