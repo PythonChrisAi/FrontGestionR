@@ -1,175 +1,96 @@
-// api.js - módulo de comunicación con la API REST
 const API = {
-    // URL base desde configuración
-    baseUrl: CONFIG.backendUrl,
+    baseURL: 'https://restaurant-api-production-3a92.up.railway.app/api',
 
-    // ==============================
-    // Método genérico para peticiones
-    // ==============================
-    async request(endpoint, options = {}) {
-        const token = localStorage.getItem('authToken');
-
-        const headers = {
-            'Content-Type': 'application/json',
-            ...(token && { 'Authorization': `Bearer ${token}` }),
-            ...options.headers
+    async request(endpoint, method = 'GET', body = null) {
+        const options = {
+            method,
+            headers: {
+                'Content-Type': 'application/json',
+            },
         };
 
+        if (body) {
+            options.body = JSON.stringify(body);
+            console.log('📦 Body:', body);
+        }
+
         try {
-            const url = `${this.baseUrl}${endpoint}`;
-            console.log(`📡 API Request: ${options.method || 'GET'} ${url}`);
+            console.log(`📡 API Request: ${method} ${this.baseURL}${endpoint}`);
+            const res = await fetch(this.baseURL + endpoint, options);
 
-            if (options.body) {
-                try {
-                    console.log('📦 Body:', JSON.parse(options.body));
-                } catch {
-                    console.log('📦 Body (no JSON):', options.body);
-                }
+            if (!res.ok) {
+                const errorText = await res.text();
+                console.error(`❌ API Error (${endpoint}):`, errorText);
+                throw new Error(errorText || 'Error desconocido');
             }
 
-            const response = await fetch(url, {
-                ...options,
-                headers,
-                credentials: 'include',
-                mode: 'cors'
-            });
-
-            if (!response.ok) {
-                if (response.status === 401) {
-                    localStorage.removeItem('authToken');
-                    localStorage.removeItem('user');
-                    if (typeof UI !== 'undefined' && UI.mostrarLogin) {
-                        UI.mostrarLogin();
-                    }
-                    throw new Error('Sesión expirada. Inicia sesión nuevamente.');
-                }
-
-                let errorMessage = `Error ${response.status}`;
-
-                try {
-                    const errorData = await response.json();
-                    errorMessage = errorData.error || errorData.message || errorMessage;
-                } catch {
-                    const text = await response.text();
-                    if (text) errorMessage = text;
-                }
-
-                throw new Error(errorMessage);
-            }
-
-            return await response.json();
-
+            const data = await res.json();
+            return data;
         } catch (error) {
-            console.error(`❌ API Error (${endpoint}):`, error.message);
+            console.error(`❌ API Request failed (${endpoint}):`, error);
             throw error;
         }
     },
 
-    // ==============================
-    // AUTENTICACIÓN
-    // ==============================
     async login(username, password) {
-        const data = await this.request('/api/auth/login', {
-            method: 'POST',
-            body: JSON.stringify({ username, password })
-        });
-
-        if (data.token) {
-            localStorage.setItem('authToken', data.token);
-            localStorage.setItem('user', JSON.stringify(data.usuario));
-        }
-
-        return data;
+        return await this.request('/auth/login', 'POST', { username, password });
     },
 
-    logout() {
-        localStorage.removeItem('authToken');
-        localStorage.removeItem('user');
+    async logout() {
+        return await this.request('/auth/logout', 'POST');
     },
 
-    // ==============================
-    // COCINA
-    // ==============================
-    getPedidosPendientes() {
-        return this.request('/api/cocina/pendientes');
+    async getMesas() {
+        return await this.request('/mesas');
     },
 
-    cambiarEstadoPedido(pedidoId, nuevoEstado) {
-        return this.request(`/api/cocina/pedidos/${pedidoId}/estado`, {
-            method: 'PATCH',
-            body: JSON.stringify({ nuevo_estado: nuevoEstado })
-        });
+    async abrirCuenta(mesaId) {
+        return await this.request(`/mesas/${mesaId}/abrir-cuenta`, 'POST');
     },
 
-    // ==============================
-    // MESAS
-    // ==============================
-    getMesas() {
-        return this.request('/api/mesas');
+    async tomarOrden(cuentaId, platillos) {
+        // platillos: [{ producto_id, cantidad, cliente_nombre }]
+        return await this.request(`/ordenes/${cuentaId}/tomar`, 'POST', { platillos });
     },
 
-    fusionarMesas(mesaPrincipalId, mesasAFusionar) {
-        return this.request('/api/mesas/fusionar', {
-            method: 'POST',
-            body: JSON.stringify({
-                mesa_principal_id: mesaPrincipalId,
-                mesas_a_fusionar: mesasAFusionar
-            })
-        });
+    async getPedidosPendientes() {
+        return await this.request('/ordenes/pendientes');
     },
 
-    // ==============================
-    // PEDIDOS
-    // ==============================
-    getMenu() {
-        return this.request('/api/pedidos/menu');
+    async getMenu() {
+        return await this.request('/menu');
     },
 
-    abrirCuenta(mesaId) {
-        return this.request('/api/pedidos/abrir-cuenta', {
-            method: 'POST',
-            body: JSON.stringify({ mesa_id: mesaId })
+    async getCuenta(cuentaId) {
+        return await this.request(`/pagos/cuenta/${cuentaId}`);
+    },
+
+    async procesarPago({ cuenta_id, pagos }) {
+        // Asegurarse de que cada pago tenga los campos obligatorios
+        const pagosCorregidos = pagos.map(pago => ({
+            cuenta_id: pago.cuenta_id,
+            cliente_nombre: pago.cliente_nombre,
+            monto: parseFloat(pago.monto),
+            metodo_pago: pago.metodo_pago,
+            creado_en: pago.creado_en || new Date().toISOString()
+        }));
+
+        console.log('💳 Procesando pago:', { cuenta_id, pagos: pagosCorregidos });
+
+        return await this.request('/pagos/pagar', 'POST', { cuenta_id, pagos: pagosCorregidos });
+    },
+
+    async fusionarMesas(mesaPrincipalId, mesasSeleccionadas) {
+        return await this.request('/mesas/fusionar', 'POST', {
+            mesa_principal: mesaPrincipalId,
+            mesas: mesasSeleccionadas
         });
     },
 
-    tomarOrden(cuentaId, platillos) {
-        return this.request('/api/pedidos/ordenar', {
-            method: 'POST',
-            body: JSON.stringify({
-                cuenta_id: Number(cuentaId),
-                platillos: platillos
-            })
-        });
-    },
-
-    // ==============================
-    // PAGOS
-    // ==============================
-    async procesarPago(pagoData) {
-        // Validar que el objeto tenga la estructura mínima
-        if (!pagoData || !pagoData.cuenta_id || !Array.isArray(pagoData.pagos) || pagoData.pagos.length === 0) {
-            throw new Error("Datos incompletos para procesar el pago");
-        }
-
-        console.log("💳 Procesando pago:", pagoData);
-
-        return this.request('/api/pagos/pagar', {
-            method: 'POST',
-            body: JSON.stringify(pagoData)
-        });
-    },
-
-    getCuenta(cuentaId) {
-        return this.request(`/api/pagos/cuenta/${cuentaId}`);
-    },
-
-    // ==============================
-    // UTILIDADES
-    // ==============================
     async checkHealth() {
         try {
-            const data = await this.request('/api/health');
-            return data.status === 'API funcionando';
+            const res = await fetch(this.baseURL + '/health');
+            return res.ok;
         } catch {
             return false;
         }
