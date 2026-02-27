@@ -2,11 +2,15 @@ const API = {
     baseURL: 'https://restaurant-api-production-3a92.up.railway.app/api',
 
     async request(endpoint, method = 'GET', body = null) {
+        const token = localStorage.getItem('token'); // Obtener token JWT del almacenamiento local
+        const headers = {
+            'Content-Type': 'application/json',
+        };
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+
         const options = {
             method,
-            headers: {
-                'Content-Type': 'application/json',
-            },
+            headers,
         };
 
         if (body) {
@@ -19,7 +23,12 @@ const API = {
             const res = await fetch(this.baseURL + endpoint, options);
 
             if (!res.ok) {
-                const errorText = await res.text();
+                let errorText;
+                try {
+                    errorText = await res.text();
+                } catch { 
+                    errorText = 'Error desconocido';
+                }
                 console.error(`❌ API Error (${endpoint}):`, errorText);
                 throw new Error(errorText || 'Error desconocido');
             }
@@ -32,6 +41,7 @@ const API = {
         }
     },
 
+    // ----- AUTENTICACIÓN -----
     async login(username, password) {
         return await this.request('/auth/login', 'POST', { username, password });
     },
@@ -40,14 +50,27 @@ const API = {
         return await this.request('/auth/logout', 'POST');
     },
 
+    // ----- MESAS -----
     async getMesas() {
         return await this.request('/mesas');
+    },
+
+    async getMesa(id) {
+        return await this.request(`/mesas/${id}`);
     },
 
     async abrirCuenta(mesaId) {
         return await this.request(`/mesas/${mesaId}/abrir-cuenta`, 'POST');
     },
 
+    async fusionarMesas(mesaPrincipalId, mesasSeleccionadas) {
+        return await this.request('/mesas/fusionar', 'POST', {
+            mesa_principal: mesaPrincipalId,
+            mesas: mesasSeleccionadas
+        });
+    },
+
+    // ----- ORDENES -----
     async tomarOrden(cuentaId, platillos) {
         // platillos: [{ producto_id, cantidad, cliente_nombre }]
         return await this.request(`/ordenes/${cuentaId}/tomar`, 'POST', { platillos });
@@ -65,28 +88,24 @@ const API = {
         return await this.request(`/pagos/cuenta/${cuentaId}`);
     },
 
+    // ----- PAGOS -----
     async procesarPago({ cuenta_id, pagos }) {
-        // Asegurarse de que cada pago tenga los campos obligatorios
+        // Cada pago debe tener: cuenta_id, monto, metodo_pago, cliente_nombre, creado_en
         const pagosCorregidos = pagos.map(pago => ({
-            cuenta_id: pago.cuenta_id,
-            cliente_nombre: pago.cliente_nombre,
+            cuenta_id: cuenta_id, // todos los pagos pertenecen a la misma cuenta
             monto: parseFloat(pago.monto),
             metodo_pago: pago.metodo_pago,
+            cliente_nombre: pago.cliente_nombre,
             creado_en: pago.creado_en || new Date().toISOString()
         }));
 
-        console.log('💳 Procesando pago:', { cuenta_id, pagos: pagosCorregidos });
+        console.log('💳 Procesando pago:', pagosCorregidos);
 
-        return await this.request('/pagos/pagar', 'POST', { cuenta_id, pagos: pagosCorregidos });
+        // Enviar array de pagos directamente
+        return await this.request('/pagos/pagar', 'POST', pagosCorregidos);
     },
 
-    async fusionarMesas(mesaPrincipalId, mesasSeleccionadas) {
-        return await this.request('/mesas/fusionar', 'POST', {
-            mesa_principal: mesaPrincipalId,
-            mesas: mesasSeleccionadas
-        });
-    },
-
+    // ----- SALUD DEL SERVIDOR -----
     async checkHealth() {
         try {
             const res = await fetch(this.baseURL + '/health');
