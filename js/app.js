@@ -438,7 +438,17 @@ const UI = {
             this.cerrarModal('mesa');
             
             // Recargar mesas para actualizar el estado
-            await CargarDatos.cargarMesas();
+            const mesas = await API.getMesas();
+
+            // Buscar la mesa que abrimos
+            const mesaActualizada = mesas.find(m => m.id === mesaId);
+
+            // Forzar actualización si backend trae mal el dato
+            if (mesaActualizada) {
+                mesaActualizada.cuenta_activa_id = cuentaId;
+            }
+
+UI.renderizarMesas(mesas);
             
         } catch (error) {
             console.error('Error al abrir cuenta:', error);
