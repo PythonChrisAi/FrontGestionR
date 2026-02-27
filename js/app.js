@@ -635,23 +635,66 @@ UI.renderizarMesas(mesas);
     },
 
 /// ========== ACCIONES DE PAGO ==========
-async procesarPago({ cuenta_id, pagos }) {
-    if (!cuenta_id || !pagos || !Array.isArray(pagos) || pagos.length === 0) {
-        throw new Error("No se proporcionaron pagos válidos");
+// ========== ACCIONES DE PAGO ==========
+async procesarPago(cuentaId, mesaNumero) {
+    try {
+        console.log('💳 Procesando pago para cuenta:', cuentaId, 'mesa:', mesaNumero);
+        
+        // Obtener el método de pago seleccionado
+        const metodoPago = document.querySelector('input[name="metodo_pago"]:checked')?.value || 'efectivo';
+        
+        // Obtener los detalles de la cuenta actual
+        const cuenta = await API.getCuenta(cuentaId);
+        
+        // Preparar los pagos (uno por cliente o un pago general)
+        const pagos = cuenta.cuentas_separadas.map(cliente => ({
+            cuenta_id: cuentaId,
+            cliente_nombre: cliente.cliente_nombre,
+            monto: parseFloat(cliente.total_a_pagar),
+            metodo_pago: metodoPago,
+            creado_en: new Date().toISOString()
+        }));
+        
+        // Si no hay clientes separados, crear un pago general
+        if (pagos.length === 0) {
+            pagos.push({
+                cuenta_id: cuentaId,
+                cliente_nombre: 'General',
+                monto: parseFloat(cuenta.gran_total),
+                metodo_pago: metodoPago,
+                creado_en: new Date().toISOString()
+            });
+        }
+        
+        console.log('📦 Pagos a procesar:', pagos);
+        
+        // Procesar el pago
+        const resultado = await API.procesarPago({ 
+            cuenta_id: cuentaId, 
+            pagos: pagos 
+        });
+        
+        console.log('✅ Pago procesado:', resultado);
+        
+        this.agregarAlerta(
+            '💰 Pago exitoso',
+            `Mesa ${mesaNumero} - Total: $${parseFloat(cuenta.gran_total).toFixed(2)}`,
+            'success'
+        );
+        
+        // Cerrar modal y actualizar datos
+        this.cerrarModal('pago');
+        await CargarDatos.cargarMesas();
+        
+        // Si estamos en la sección de mesas, actualizar
+        if (this.currentSection === 'mesas') {
+            CargarDatos.cargarMesas();
+        }
+        
+    } catch (error) {
+        console.error('❌ Error al procesar pago:', error);
+        this.agregarAlerta('❌ Error', error.message || 'Error al procesar el pago', 'error');
     }
-
-    // Transformar los pagos para que tengan los campos obligatorios
-    const pagosCorregidos = pagos.map(pago => ({
-        cuenta_id: pago.cuenta_id || cuenta_id,
-        cliente_nombre: pago.cliente_nombre || "Cliente",
-        monto: parseFloat(pago.monto),
-        metodo_pago: pago.metodo_pago || "efectivo",
-        creado_en: pago.creado_en || new Date().toISOString()
-    }));
-
-    console.log("💳 Procesando pago:", { cuenta_id, pagos: pagosCorregidos });
-
-    return await this.request("/pagos/pagar", "POST", { cuenta_id, pagos: pagosCorregidos });
 },
 // ========== ACCIONES DE FUSIÓN ==========
 iniciarFusionMesa(mesaId, mesaNumero) {
