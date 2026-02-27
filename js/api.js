@@ -1,4 +1,4 @@
-// Módulo de comunicación con la API REST
+// api.js - módulo de comunicación con la API REST
 const API = {
     // URL base desde configuración
     baseUrl: CONFIG.backendUrl,
@@ -35,15 +35,12 @@ const API = {
             });
 
             if (!response.ok) {
-
                 if (response.status === 401) {
                     localStorage.removeItem('authToken');
                     localStorage.removeItem('user');
-
                     if (typeof UI !== 'undefined' && UI.mostrarLogin) {
                         UI.mostrarLogin();
                     }
-
                     throw new Error('Sesión expirada. Inicia sesión nuevamente.');
                 }
 
@@ -146,11 +143,12 @@ const API = {
     },
 
     // ==============================
-    // PAGOS (CORREGIDO PARA PAGOS POR CLIENTE)
+    // PAGOS
     // ==============================
-    procesarPago(pagoData) {
-        if (!pagoData || !pagoData.cuenta_id || !pagoData.pagos || !Array.isArray(pagoData.pagos)) {
-            throw new Error("Datos incompletos para procesar el pago. Se requiere { cuenta_id, pagos: [...] }");
+    async procesarPago(pagoData) {
+        // Validar que el objeto tenga la estructura mínima
+        if (!pagoData || !pagoData.cuenta_id || !Array.isArray(pagoData.pagos) || pagoData.pagos.length === 0) {
+            throw new Error("Datos incompletos para procesar el pago");
         }
 
         console.log("💳 Procesando pago:", pagoData);

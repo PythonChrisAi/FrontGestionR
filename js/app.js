@@ -637,25 +637,39 @@ UI.renderizarMesas(mesas);
 /// ========== ACCIONES DE PAGO ==========
 async procesarPago(cuentaId, mesaNumero) {
     try {
+        // Obtener el método de pago seleccionado
         const metodoPago =
             document.querySelector('input[name="metodo_pago"]:checked')?.value
             || "terminal";
 
+        // Traer la cuenta actual
         const cuenta = await API.getCuenta(cuentaId);
 
-        const pagos = cuenta.cuentas_separadas.map(cliente => ({
-            cliente_nombre: cliente.cliente_nombre,
-            monto: parseFloat(cliente.total_a_pagar),
-            metodo_pago: metodoPago
-        }));
+        if (!cuenta || !cuenta.cuentas_separadas || cuenta.cuentas_separadas.length === 0) {
+            throw new Error("No se encontraron clientes en la cuenta");
+        }
+
+        // Construir el array de pagos validando cada cliente
+        const pagos = cuenta.cuentas_separadas.map(cliente => {
+            const monto = parseFloat(cliente.total_a_pagar);
+            if (!cliente.cliente_nombre || isNaN(monto) || monto <= 0) {
+                throw new Error(`Monto inválido para cliente "${cliente.cliente_nombre || 'Desconocido'}"`);
+            }
+            return {
+                cliente_nombre: cliente.cliente_nombre,
+                monto,
+                metodo_pago: metodoPago
+            };
+        });
 
         const pagoData = {
             cuenta_id: cuentaId,
-            pagos: pagos
+            pagos
         };
 
-        console.log("📤 Enviando:", pagoData);
+        console.log("📤 Enviando:", JSON.stringify(pagoData, null, 2));
 
+        // Llamar al API para procesar el pago
         await API.procesarPago(pagoData);
 
         this.agregarAlerta(
