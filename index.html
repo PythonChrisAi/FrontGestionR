@@ -123,7 +123,48 @@
         </main>
     </div>
 
-    <!-- Scripts -->
+    <!-- ===== MODALES ===== -->
+    
+    <!-- Modal para gestión de mesas -->
+    <div id="mesa-modal" class="modal" style="display: none;">
+        <div class="modal-content glass-card">
+            <div class="modal-header">
+                <h2 id="modal-titulo">Gestión de Mesa</h2>
+                <button class="modal-close" onclick="UI.cerrarModal('mesa')">&times;</button>
+            </div>
+            <div class="modal-body" id="mesa-modal-body">
+                <!-- Contenido dinámico -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para tomar orden -->
+    <div id="orden-modal" class="modal" style="display: none;">
+        <div class="modal-content glass-card modal-lg">
+            <div class="modal-header">
+                <h2>📝 Tomar Orden</h2>
+                <button class="modal-close" onclick="UI.cerrarModal('orden')">&times;</button>
+            </div>
+            <div class="modal-body" id="orden-modal-body">
+                <!-- Contenido dinámico -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para pagos -->
+    <div id="pago-modal" class="modal" style="display: none;">
+        <div class="modal-content glass-card">
+            <div class="modal-header">
+                <h2>💰 Procesar Pago</h2>
+                <button class="modal-close" onclick="UI.cerrarModal('pago')">&times;</button>
+            </div>
+            <div class="modal-body" id="pago-modal-body">
+                <!-- Contenido dinámico -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts (siempre al final) -->
     <script src="js/config.js"></script>
     <script src="js/api.js"></script>
     <script src="js/sockets.js"></script>
