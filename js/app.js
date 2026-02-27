@@ -634,26 +634,22 @@ UI.renderizarMesas(mesas);
         }
     },
 
-// ========== ACCIONES DE PAGO ==========
+/// ========== ACCIONES DE PAGO ==========
 async procesarPago(cuentaId, mesaNumero) {
 
     try {
 
-        const metodoPago = document.querySelector('input[name="metodo_pago"]:checked')?.value;
+        // Si no hay selección, default = terminal
+        const metodoPago =
+            document.querySelector('input[name="metodo_pago"]:checked')?.value
+            || "terminal";
 
-        if (!metodoPago) {
-            throw new Error("Selecciona un método de pago");
-        }
-
-        console.log('💳 Procesando pago simple:', {
+        console.log('💳 Procesando pago:', {
             cuenta_id: cuentaId,
             metodo_pago: metodoPago
         });
 
-        // 🔥 Ya NO usamos cuentas_separadas
-        const result = await API.procesarPago(cuentaId, metodoPago);
-
-        console.log('✅ Respuesta pago:', result);
+        await API.procesarPago(cuentaId, metodoPago);
 
         this.agregarAlerta(
             '✅ Pago procesado',
@@ -663,7 +659,6 @@ async procesarPago(cuentaId, mesaNumero) {
 
         this.cerrarModal('pago');
 
-        // Recargar mesas para actualizar estado
         await CargarDatos.cargarMesas();
 
     } catch (error) {
