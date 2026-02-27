@@ -20,7 +20,11 @@ const API = {
             console.log(`📡 API Request: ${options.method || 'GET'} ${url}`);
 
             if (options.body) {
-                console.log('📦 Body:', JSON.parse(options.body));
+                try {
+                    console.log('📦 Body:', JSON.parse(options.body));
+                } catch {
+                    console.log('📦 Body (no JSON):', options.body);
+                }
             }
 
             const response = await fetch(url, {
@@ -142,25 +146,18 @@ const API = {
     },
 
     // ==============================
-    // PAGOS (OPCIÓN A - SIMPLE)
+    // PAGOS (CORREGIDO PARA PAGOS POR CLIENTE)
     // ==============================
-    procesarPago(cuentaId, metodoPago) {
-
-        if (!cuentaId || !metodoPago) {
-            throw new Error("Datos incompletos para procesar el pago");
+    procesarPago(pagoData) {
+        if (!pagoData || !pagoData.cuenta_id || !pagoData.pagos || !Array.isArray(pagoData.pagos)) {
+            throw new Error("Datos incompletos para procesar el pago. Se requiere { cuenta_id, pagos: [...] }");
         }
 
-        console.log("💳 Procesando pago simple:", {
-            cuenta_id: cuentaId,
-            metodo_pago: metodoPago
-        });
+        console.log("💳 Procesando pago:", pagoData);
 
         return this.request('/api/pagos/pagar', {
             method: 'POST',
-            body: JSON.stringify({
-                cuenta_id: Number(cuentaId),
-                metodo_pago: metodoPago.toString()
-            })
+            body: JSON.stringify(pagoData)
         });
     },
 
