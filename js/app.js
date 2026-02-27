@@ -226,7 +226,6 @@ const UI = {
             </div>
         `;
         
-        // Solo mostrar opciones si hay usuario autenticado
         if (this.user) {
             if (puedeCambiarEstado) {
                 html += `
@@ -243,6 +242,7 @@ const UI = {
             
             html += `<div class="btn-group">`;
             
+            // Mostrar botones según el estado de la mesa
             if (mesa.estado === 'disponible' && puedeAbrirCuenta) {
                 html += `
                     <button class="btn-success" onclick="UI.abrirCuentaMesa(${mesa.id}, ${mesa.numero})">
@@ -274,7 +274,6 @@ const UI = {
                 </button>
             </div>`;
         } else {
-            // Usuario no autenticado - solo mostrar mensaje
             html += `
                 <div style="text-align: center; padding: 20px;">
                     <p>Inicia sesión para gestionar esta mesa</p>
@@ -434,16 +433,39 @@ const UI = {
 
     async abrirCuentaMesa(mesaId, mesaNumero) {
         try {
+            console.log('Intentando abrir cuenta para mesa:', mesaId);
+            
             const result = await API.abrirCuenta(mesaId);
+            
             this.agregarAlerta(
                 '✅ Cuenta abierta',
                 `Mesa ${mesaNumero} - Cuenta #${result.cuenta.id}`,
                 'success'
             );
+            
             this.cerrarModal('mesa');
-            CargarDatos.cargarMesas();
+            
+            // Recargar mesas para actualizar el estado
+            setTimeout(() => {
+                CargarDatos.cargarMesas();
+            }, 500);
+            
         } catch (error) {
-            this.agregarAlerta('❌ Error', error.message, 'error');
+            console.error('Error al abrir cuenta:', error);
+            
+            if (error.message.includes('ya tiene una cuenta abierta')) {
+                this.agregarAlerta(
+                    'ℹ️ Información',
+                    'Esta mesa ya tenía una cuenta abierta. Actualizando estado...',
+                    'info'
+                );
+                
+                // Forzar recarga de mesas para sincronizar
+                await CargarDatos.cargarMesas();
+                this.cerrarModal('mesa');
+            } else {
+                this.agregarAlerta('❌ Error', error.message, 'error');
+            }
         }
     },
 
@@ -461,15 +483,20 @@ const UI = {
     },
 
     async buscarCuentaActiva(mesaId) {
-        this.ordenActual.cuentaId = 1;
+        // Por ahora no podemos obtener la cuenta activa directamente del backend
+        // Usamos un ID temporal - En producción necesitarías un endpoint que devuelva la cuenta activa por mesa
+        this.ordenActual.cuentaId = 1; // Temporal
     },
 
     async verCuenta(mesaId) {
         try {
-            const cuentaId = 1;
+            // Temporal: necesitas obtener el cuenta_id real de la mesa
+            const cuentaId = 1; // Esto debería obtenerse del backend
+            
             const cuenta = await API.getCuenta(cuentaId);
             const mesaElement = document.querySelector(`[data-mesa-id="${mesaId}"]`);
             cuenta.mesa_numero = mesaElement?.dataset.mesaNumero || '?';
+            
             this.abrirModal('pago', cuenta);
         } catch (error) {
             this.agregarAlerta('❌ Error', error.message, 'error');
@@ -633,7 +660,11 @@ const UI = {
             );
             
             this.cerrarModal('pago');
-            CargarDatos.cargarMesas();
+            
+            // Recargar mesas para actualizar estado
+            setTimeout(() => {
+                CargarDatos.cargarMesas();
+            }, 500);
             
         } catch (error) {
             this.agregarAlerta('❌ Error', error.message, 'error');
@@ -807,7 +838,6 @@ const UI = {
 
         container.innerHTML = html;
         
-        // AGREGAR EVENT LISTENERS DIRECTAMENTE
         container.querySelectorAll('.mesa-item').forEach(item => {
             item.addEventListener('click', (e) => {
                 e.preventDefault();
