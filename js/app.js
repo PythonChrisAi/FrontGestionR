@@ -12,6 +12,7 @@ const UI = {
     // Estado para órdenes
     ordenActual: {
         cuentaId: null,
+        mesaId: null,
         mesaNumero: null,
         items: [], // { producto_id, nombre, cantidad, precio, cliente }
         clientes: ['General']
@@ -22,6 +23,9 @@ const UI = {
         mesaPrincipal: null,
         mesasSeleccionadas: []
     },
+    
+    // Cache del menú
+    menuCache: [],
 
     init() {
         console.log('🚀 Inicializando FrontGestionR v' + CONFIG.version);
@@ -200,17 +204,31 @@ const UI = {
 
     // ========== RENDERIZADO DE MODALES ==========
     renderModalMesa(container, mesa) {
+        const puedeCambiarEstado = this.user && [1,2,3].includes(this.user.rol_id);
         const puedeFusionar = this.user && [1,2].includes(this.user.rol_id);
         const puedeAbrirCuenta = this.user && [1,3].includes(this.user.rol_id);
         
         container.innerHTML = `
             <div style="text-align: center; margin-bottom: 20px;">
                 <span class="mesa-numero" style="font-size: 3rem;">${mesa.numero}</span>
-                <span class="mesa-estado" style="font-size: 1.2rem; display: block;">${mesa.estado}</span>
+                <span class="mesa-estado" style="font-size: 1.2rem; display: block; margin-top: 10px;">
+                    Estado actual: <strong>${mesa.estado}</strong>
+                </span>
             </div>
             
+            ${puedeCambiarEstado ? `
+                <div class="form-group">
+                    <label>Cambiar Estado:</label>
+                    <select id="cambiar-estado-mesa" class="estado-select" onchange="UI.cambiarEstadoMesa(${mesa.id}, this.value)">
+                        <option value="disponible" ${mesa.estado === 'disponible' ? 'selected' : ''}>🟢 Disponible</option>
+                        <option value="ocupada" ${mesa.estado === 'ocupada' ? 'selected' : ''}>🔴 Ocupada</option>
+                        <option value="reservada" ${mesa.estado === 'reservada' ? 'selected' : ''}>🟡 Reservada</option>
+                    </select>
+                </div>
+            ` : ''}
+            
             <div class="btn-group">
-                ${mesa.estado === 'disponible' ? `
+                ${mesa.estado === 'disponible' && puedeAbrirCuenta ? `
                     <button class="btn-success" onclick="UI.abrirCuentaMesa(${mesa.id}, ${mesa.numero})">
                         📝 Abrir Cuenta
                     </button>
@@ -219,7 +237,7 @@ const UI = {
                         🍽️ Tomar Orden
                     </button>
                     <button class="btn-success" onclick="UI.verCuenta(${mesa.id})">
-                        💰 Ver Cuenta
+                        💰 Ver Cuenta / Pagar
                     </button>
                 ` : ''}
                 
@@ -236,7 +254,7 @@ const UI = {
             
             ${mesa.mesa_padre_id ? `
                 <div style="margin-top: 20px; padding: 10px; background: rgba(99,102,241,0.2); border-radius: 10px;">
-                    <small>Esta mesa está fusionada con la mesa principal</small>
+                    <small>Esta mesa está fusionada con la mesa principal ID: ${mesa.mesa_padre_id}</small>
                 </div>
             ` : ''}
         `;
@@ -244,6 +262,7 @@ const UI = {
 
     renderModalOrden(container, datos) {
         const { mesaId, mesaNumero } = datos;
+        this.ordenActual.mesaId = mesaId;
         this.ordenActual.mesaNumero = mesaNumero;
         
         container.innerHTML = `
@@ -293,18 +312,30 @@ const UI = {
 
     renderModalPago(container, cuenta) {
         container.innerHTML = `
-            <h3>Cuenta Mesa ${cuenta.mesa_numero}</h3>
+            <h3>Cuenta #${cuenta.cuenta_id} - Mesa ${cuenta.mesa_numero || 'N/A'}</h3>
             
             <div class="cuenta-detalle">
-                ${cuenta.detalle.map(item => `
-                    <div style="display: flex; justify-content: space-between; padding: 5px 0;">
-                        <span>${item.cantidad}× ${item.platillo}</span>
-                        <span>$${(item.precio_unitario * item.cantidad).toFixed(2)}</span>
+                <h4>Detalle por Cliente:</h4>
+                ${cuenta.cuentas_separadas.map(cliente => `
+                    <div style="margin: 15px 0; padding: 10px; background: rgba(0,0,0,0.2); border-radius: 10px;">
+                        <strong>${cliente.cliente_nombre}</strong>
+                        <div style="margin-top: 5px;">
+                            ${cliente.detalle.map(item => `
+                                <div style="display: flex; justify-content: space-between; padding: 3px 0;">
+                                    <span>${item.cantidad}× ${item.platillo}</span>
+                                    <span>$${(item.precio_unitario * item.cantidad).toFixed(2)}</span>
+                                </div>
+                            `).join('')}
+                            <div style="display: flex; justify-content: space-between; margin-top: 5px; font-weight: bold; border-top: 1px solid rgba(255,255,255,0.2); padding-top: 5px;">
+                                <span>Subtotal ${cliente.cliente_nombre}:</span>
+                                <span>$${parseFloat(cliente.total_a_pagar).toFixed(2)}</span>
+                            </div>
+                        </div>
                     </div>
                 `).join('')}
                 
                 <div class="cuenta-total">
-                    Total: $${cuenta.total.toFixed(2)}
+                    TOTAL GENERAL: $${parseFloat(cuenta.gran_total).toFixed(2)}
                 </div>
             </div>
             
@@ -323,8 +354,8 @@ const UI = {
             </div>
             
             <div class="btn-group">
-                <button class="btn-success" onclick="UI.procesarPago(${cuenta.id})">
-                    ✅ Procesar Pago
+                <button class="btn-success" onclick="UI.procesarPago(${cuenta.cuenta_id}, ${cuenta.gran_total})">
+                    ✅ Procesar Pago Total
                 </button>
                 <button class="btn-secondary" onclick="UI.cerrarModal('pago')">
                     ❌ Cerrar
@@ -354,6 +385,24 @@ const UI = {
     },
 
     // ========== ACCIONES DE MESAS ==========
+    async cambiarEstadoMesa(mesaId, nuevoEstado) {
+        try {
+            // Nota: El backend no tiene un endpoint directo para cambiar estado de mesa
+            // Por ahora usamos una simulación o podrías implementarlo en el backend
+            this.agregarAlerta(
+                'ℹ️ Información',
+                `Cambiar estado a ${nuevoEstado} - Endpoint pendiente en backend`,
+                'info'
+            );
+            
+            // Temporal: Recargar mesas para simular cambio
+            setTimeout(() => CargarDatos.cargarMesas(), 1000);
+            
+        } catch (error) {
+            this.agregarAlerta('❌ Error', error.message, 'error');
+        }
+    },
+
     async abrirCuentaMesa(mesaId, mesaNumero) {
         try {
             const result = await API.abrirCuenta(mesaId);
@@ -369,41 +418,77 @@ const UI = {
         }
     },
 
-    tomarOrdenMesa(mesaId, mesaNumero) {
+    async tomarOrdenMesa(mesaId, mesaNumero) {
         this.ordenActual = {
             cuentaId: null,
+            mesaId: mesaId,
             mesaNumero,
             items: [],
             clientes: ['General']
         };
         
-        // Buscar cuenta activa
-        this.buscarCuentaActiva(mesaId).then(cuentaId => {
-            this.ordenActual.cuentaId = cuentaId;
-            this.abrirModal('orden', { mesaId, mesaNumero });
-        });
+        // Buscar cuenta activa para esta mesa
+        await this.buscarCuentaActiva(mesaId);
+        this.abrirModal('orden', { mesaId, mesaNumero });
     },
 
     async buscarCuentaActiva(mesaId) {
-        // Por ahora, asumimos que hay una cuenta activa
-        // En producción, deberías obtenerla de la API
-        return 1; // Temporal
+        // Por ahora no podemos obtener la cuenta activa directamente
+        // En un futuro, el backend podría tener un endpoint para esto
+        this.ordenActual.cuentaId = 1; // Temporal - NECESITAS IMPLEMENTAR EN BACKEND
+    },
+
+    async verCuenta(mesaId) {
+        try {
+            // Primero necesitamos obtener el ID de la cuenta activa para esta mesa
+            // Por ahora usamos un ID fijo (1) como ejemplo
+            const cuentaId = 1; // TEMPORAL - Debes obtenerlo del backend
+            
+            const cuenta = await API.getCuenta(cuentaId);
+            
+            // Agregar número de mesa para mostrar
+            cuenta.mesa_numero = document.querySelector(`[data-mesa-id="${mesaId}"]`)?.dataset.mesaNumero || '?';
+            
+            this.abrirModal('pago', cuenta);
+        } catch (error) {
+            this.agregarAlerta('❌ Error', error.message, 'error');
+        }
     },
 
     // ========== ACCIONES DE ORDEN ==========
     async cargarMenuEnModal() {
         const container = document.getElementById('platillos-lista');
         try {
-            const menu = await API.getMenu();
-            container.innerHTML = menu.map(platillo => `
-                <div class="platillo-item" onclick="UI.agregarItemAOrden(${platillo.id}, '${platillo.nombre}', ${platillo.precio})">
-                    <div class="platillo-info">
-                        <h4>${platillo.nombre}</h4>
-                        <p>${platillo.descripcion || ''}</p>
-                    </div>
-                    <span class="platillo-precio">$${platillo.precio}</span>
-                </div>
-            `).join('');
+            if (this.menuCache.length === 0) {
+                this.menuCache = await API.getMenu();
+            }
+            
+            // Agrupar por categoría
+            const menuPorCategoria = this.menuCache.reduce((acc, item) => {
+                if (!acc[item.categoria]) {
+                    acc[item.categoria] = [];
+                }
+                acc[item.categoria].push(item);
+                return acc;
+            }, {});
+            
+            let html = '';
+            for (const [categoria, items] of Object.entries(menuPorCategoria)) {
+                html += `<h4 style="margin: 15px 0 5px; color: var(--primary);">${categoria}</h4>`;
+                items.forEach(platillo => {
+                    html += `
+                        <div class="platillo-item" onclick="UI.agregarItemAOrden(${platillo.id}, '${platillo.nombre}', ${platillo.precio})">
+                            <div class="platillo-info">
+                                <h4>${platillo.nombre}</h4>
+                                <p>${platillo.descripcion || ''}</p>
+                            </div>
+                            <span class="platillo-precio">$${platillo.precio}</span>
+                        </div>
+                    `;
+                });
+            }
+            
+            container.innerHTML = html;
         } catch (error) {
             container.innerHTML = '<div class="empty-state">Error cargando menú</div>';
         }
@@ -412,13 +497,22 @@ const UI = {
     agregarItemAOrden(productoId, nombre, precio) {
         const clienteActual = document.querySelector('.cliente-tab.active')?.textContent || 'General';
         
-        this.ordenActual.items.push({
-            producto_id: productoId,
-            nombre,
-            precio,
-            cantidad: 1,
-            cliente: clienteActual
-        });
+        // Verificar si ya existe para aumentar cantidad
+        const existingItem = this.ordenActual.items.find(
+            item => item.producto_id === productoId && item.cliente === clienteActual
+        );
+        
+        if (existingItem) {
+            existingItem.cantidad++;
+        } else {
+            this.ordenActual.items.push({
+                producto_id: productoId,
+                nombre,
+                precio,
+                cantidad: 1,
+                cliente: clienteActual
+            });
+        }
         
         document.getElementById('orden-actual-items').innerHTML = this.renderOrdenActualItems();
         this.actualizarBotonOrden();
@@ -452,6 +546,7 @@ const UI = {
         if (nombre && nombre.trim()) {
             this.ordenActual.clientes.push(nombre.trim());
             this.renderModalOrden(document.getElementById('orden-modal-body'), {
+                mesaId: this.ordenActual.mesaId,
                 mesaNumero: this.ordenActual.mesaNumero
             });
         }
@@ -461,6 +556,7 @@ const UI = {
         event.stopPropagation();
         this.ordenActual.clientes.splice(index, 1);
         this.renderModalOrden(document.getElementById('orden-modal-body'), {
+            mesaId: this.ordenActual.mesaId,
             mesaNumero: this.ordenActual.mesaNumero
         });
     },
@@ -482,12 +578,15 @@ const UI = {
             
             this.agregarAlerta(
                 '✅ Orden enviada',
-                `Mesa ${this.ordenActual.mesaNumero} - ${platillos.length} platillos`,
+                `Mesa ${this.ordenActual.mesaNumero} - ${platillos.length} platillos enviados a cocina`,
                 'success'
             );
             
             this.cerrarModal('orden');
             this.ordenActual.items = [];
+            
+            // Recargar pedidos en cocina
+            CargarDatos.cargarPedidosPendientes();
             
         } catch (error) {
             this.agregarAlerta('❌ Error', error.message, 'error');
@@ -495,29 +594,26 @@ const UI = {
     },
 
     // ========== ACCIONES DE PAGO ==========
-    async verCuenta(mesaId) {
-        try {
-            // Obtener cuenta activa
-            const cuenta = await API.getCuenta(1); // Temporal: ID fijo
-            this.abrirModal('pago', cuenta);
-        } catch (error) {
-            this.agregarAlerta('❌ Error', error.message, 'error');
-        }
-    },
-
-    async procesarPago(cuentaId) {
+    async procesarPago(cuentaId, totalGeneral) {
         const metodoPago = document.querySelector('input[name="metodo_pago"]:checked').value;
         
         try {
-            await API.procesarPago(cuentaId, [{
+            // Crear array de pagos (uno por cliente)
+            // Por simplicidad, pagamos todo como "General"
+            const pagos = [{
                 cliente_nombre: 'General',
-                monto: 0, // Calcular total
+                monto: totalGeneral,
                 metodo_pago: metodoPago
-            }]);
+            }];
+            
+            await API.procesarPago({
+                cuenta_id: cuentaId,
+                pagos: pagos
+            });
             
             this.agregarAlerta(
                 '✅ Pago procesado',
-                'Mesa liberada exitosamente',
+                'Cuenta cerrada y mesa liberada exitosamente',
                 'success'
             );
             
@@ -545,7 +641,7 @@ const UI = {
         
         modalBody.innerHTML = `
             <h3>Fusionar con Mesa ${this.fusionState.mesaPrincipal.numero}</h3>
-            <p>Selecciona las mesas a fusionar:</p>
+            <p>Selecciona las mesas a fusionar (deben estar disponibles):</p>
             
             <div class="mesas-fusion-grid">
                 ${mesas.filter(m => m.id !== this.fusionState.mesaPrincipal.id && m.estado === 'disponible')
@@ -680,12 +776,15 @@ const UI = {
             const estado = mesa.estado || 'disponible';
             const tienePadre = mesa.mesa_padre_id ? 'fusionada' : '';
             
+            // Escapar para JSON
+            const mesaData = encodeURIComponent(JSON.stringify(mesa));
+            
             html += `
                 <div class="mesa-item ${estado} ${tienePadre}" 
                      data-mesa-id="${mesa.id}"
                      data-mesa-numero="${mesa.numero}"
                      data-estado="${estado}"
-                     onclick="UI.abrirModal('mesa', ${JSON.stringify(mesa).replace(/"/g, '&quot;')})">
+                     onclick='UI.abrirModal("mesa", ${JSON.stringify(mesa).replace(/'/g, "\\'")})'>
                     <span class="mesa-numero">${mesa.numero}</span>
                     <span class="mesa-estado">${estado}</span>
                     ${mesa.mesa_padre_id ? '<span class="mesa-fusionada">🔗</span>' : ''}
@@ -830,7 +929,8 @@ const CargarDatos = {
 
     async cargarMenu() {
         try {
-            return await API.getMenu();
+            UI.menuCache = await API.getMenu();
+            return UI.menuCache;
         } catch (error) {
             console.error('Error cargando menú:', error);
             return [];
