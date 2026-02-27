@@ -643,27 +643,20 @@ async procesarPago(cuentaId, mesaNumero) {
 
         const cuenta = await API.getCuenta(cuentaId);
 
+        // Construir el array de pagos incluyendo 'creado_en'
         const pagos = cuenta.cuentas_separadas.map(cliente => ({
+            cuenta_id: cuentaId,
             cliente_nombre: cliente.cliente_nombre,
-            monto: Number(cliente.total_a_pagar), // 🔹 Convertir a número
-            metodo_pago: metodoPago
+            monto: parseFloat(cliente.total_a_pagar),
+            metodo_pago: metodoPago,
+            creado_en: new Date().toISOString() // <-- aquí
         }));
 
-        // Validar antes de enviar
-        if (pagos.some(p => !p.cliente_nombre || !p.monto || !p.metodo_pago)) {
-            throw new Error("Algunos datos de pago están incompletos");
-        }
+        console.log("📤 Enviando:", { cuenta_id: cuentaId, pagos });
 
-        const pagoData = {
-            cuenta_id: Number(cuentaId), // 🔹 Asegurarse de enviar número
-            pagos: pagos
-        };
+        await API.procesarPago({ cuenta_id: cuentaId, pagos });
 
-        console.log("📤 Enviando:", pagoData);
-
-        await API.procesarPago(pagoData);
-
-        this.agregarAlerta(
+        UI.agregarAlerta(
             '✅ Pago procesado',
             `Mesa ${mesaNumero} liberada. Pago con ${metodoPago}`,
             'success'
@@ -674,7 +667,7 @@ async procesarPago(cuentaId, mesaNumero) {
 
     } catch (error) {
         console.error('❌ Error al procesar pago:', error);
-        this.agregarAlerta('❌ Error', error.message, 'error');
+        UI.agregarAlerta('❌ Error', error.message, 'error');
     }
 },
 // ========== ACCIONES DE FUSIÓN ==========
