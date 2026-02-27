@@ -11,7 +11,7 @@ const CONFIG = {
             return 'https://restaurant-api-production-3a92.up.railway.app';
         }
         // ⚠️ IMPORTANTE: Reemplaza con tu URL real de Railway
-        return 'https://tu-backend-production.up.railway.app';
+        return 'https://restaurant-api-production-3a92.up.railway.app';
     })(),
     
     // Configuración de Socket.IO
