@@ -3,9 +3,12 @@ const API = {
     // URL base desde configuración
     baseUrl: CONFIG.backendUrl,
 
+    // ==============================
     // Método genérico para peticiones
+    // ==============================
     async request(endpoint, options = {}) {
         const token = localStorage.getItem('authToken');
+
         const headers = {
             'Content-Type': 'application/json',
             ...(token && { 'Authorization': `Bearer ${token}` }),
@@ -15,10 +18,11 @@ const API = {
         try {
             const url = `${this.baseUrl}${endpoint}`;
             console.log(`📡 API Request: ${options.method || 'GET'} ${url}`);
+
             if (options.body) {
                 console.log('📦 Body:', JSON.parse(options.body));
             }
-            
+
             const response = await fetch(url, {
                 ...options,
                 headers,
@@ -26,33 +30,33 @@ const API = {
                 mode: 'cors'
             });
 
-            // Manejar errores HTTP
             if (!response.ok) {
+
                 if (response.status === 401) {
-                    // Token expirado o no válido
                     localStorage.removeItem('authToken');
                     localStorage.removeItem('user');
+
                     if (typeof UI !== 'undefined' && UI.mostrarLogin) {
                         UI.mostrarLogin();
                     }
+
                     throw new Error('Sesión expirada. Inicia sesión nuevamente.');
                 }
-                
+
                 let errorMessage = `Error ${response.status}`;
+
                 try {
                     const errorData = await response.json();
                     errorMessage = errorData.error || errorData.message || errorMessage;
                 } catch {
-                    // Si no se puede parsear el JSON, usar el texto de la respuesta
                     const text = await response.text();
                     if (text) errorMessage = text;
                 }
-                
+
                 throw new Error(errorMessage);
             }
 
-            const data = await response.json();
-            return data;
+            return await response.json();
 
         } catch (error) {
             console.error(`❌ API Error (${endpoint}):`, error.message);
@@ -60,18 +64,20 @@ const API = {
         }
     },
 
-    // ========== AUTENTICACIÓN ==========
+    // ==============================
+    // AUTENTICACIÓN
+    // ==============================
     async login(username, password) {
         const data = await this.request('/api/auth/login', {
             method: 'POST',
             body: JSON.stringify({ username, password })
         });
-        
+
         if (data.token) {
             localStorage.setItem('authToken', data.token);
             localStorage.setItem('user', JSON.stringify(data.usuario));
         }
-        
+
         return data;
     },
 
@@ -80,7 +86,9 @@ const API = {
         localStorage.removeItem('user');
     },
 
-    // ========== COCINA ==========
+    // ==============================
+    // COCINA
+    // ==============================
     getPedidosPendientes() {
         return this.request('/api/cocina/pendientes');
     },
@@ -88,11 +96,13 @@ const API = {
     cambiarEstadoPedido(pedidoId, nuevoEstado) {
         return this.request(`/api/cocina/pedidos/${pedidoId}/estado`, {
             method: 'PATCH',
-            body: JSON.stringify({ nuevo_estado })
+            body: JSON.stringify({ nuevo_estado: nuevoEstado })
         });
     },
 
-    // ========== MESAS ==========
+    // ==============================
+    // MESAS
+    // ==============================
     getMesas() {
         return this.request('/api/mesas');
     },
@@ -107,7 +117,9 @@ const API = {
         });
     },
 
-    // ========== PEDIDOS ==========
+    // ==============================
+    // PEDIDOS
+    // ==============================
     getMenu() {
         return this.request('/api/pedidos/menu');
     },
@@ -123,34 +135,42 @@ const API = {
         return this.request('/api/pedidos/ordenar', {
             method: 'POST',
             body: JSON.stringify({
-                cuenta_id: cuentaId,
+                cuenta_id: Number(cuentaId),
                 platillos: platillos
             })
         });
     },
 
-    // ========== PAGOS ==========
+    // ==============================
+    // PAGOS (OPCIÓN A - SIMPLE)
+    // ==============================
+    procesarPago(cuentaId, metodoPago) {
+
+        if (!cuentaId || !metodoPago) {
+            throw new Error("Datos incompletos para procesar el pago");
+        }
+
+        console.log("💳 Procesando pago simple:", {
+            cuenta_id: cuentaId,
+            metodo_pago: metodoPago
+        });
+
+        return this.request('/api/pagos/pagar', {
+            method: 'POST',
+            body: JSON.stringify({
+                cuenta_id: Number(cuentaId),
+                metodo_pago: metodoPago.toString()
+            })
+        });
+    },
+
     getCuenta(cuentaId) {
         return this.request(`/api/pagos/cuenta/${cuentaId}`);
     },
 
-    /**
-     * Procesa el pago de una cuenta
-     * @param {Object} pagoData - Datos del pago
-     * @param {number} pagoData.cuenta_id - ID de la cuenta
-     * @param {Array} pagoData.pagos - Array de pagos por cliente
-     * @param {string} pagoData.pagos[].cliente_nombre - Nombre del cliente
-     * @param {number} pagoData.pagos[].monto - Monto a pagar
-     * @param {string} pagoData.pagos[].metodo_pago - Método de pago (efectivo/terminal)
-     */
-    procesarPago(pagoData) {
-        return this.request('/api/pagos/pagar', {
-            method: 'POST',
-            body: JSON.stringify(pagoData)
-        });
-    },
-
-    // ========== UTILIDADES ==========
+    // ==============================
+    // UTILIDADES
+    // ==============================
     async checkHealth() {
         try {
             const data = await this.request('/api/health');
