@@ -8,7 +8,7 @@ const CONFIG = {
     backendUrl: (() => {
         if (window.location.hostname === 'localhost' || 
             window.location.hostname === '127.0.0.1') {
-            return 'http://localhost:3000';
+            return 'https://restaurant-api-production-3a92.up.railway.app';
         }
         // ⚠️ IMPORTANTE: Reemplaza con tu URL real de Railway
         return 'https://tu-backend-production.up.railway.app';
