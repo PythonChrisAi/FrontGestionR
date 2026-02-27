@@ -635,40 +635,23 @@ UI.renderizarMesas(mesas);
     },
 
 /// ========== ACCIONES DE PAGO ==========
-async procesarPago(cuentaId, mesaNumero) {
-    try {
-        const metodoPago =
-            document.querySelector('input[name="metodo_pago"]:checked')?.value
-            || "terminal";
-
-        const cuenta = await API.getCuenta(cuentaId);
-
-        // Construir el array de pagos incluyendo 'creado_en'
-        const pagos = cuenta.cuentas_separadas.map(cliente => ({
-            cuenta_id: cuentaId,
-            cliente_nombre: cliente.cliente_nombre,
-            monto: parseFloat(cliente.total_a_pagar),
-            metodo_pago: metodoPago,
-            creado_en: new Date().toISOString() // <-- aquí
-        }));
-
-        console.log("📤 Enviando:", { cuenta_id: cuentaId, pagos });
-
-        await API.procesarPago({ cuenta_id: cuentaId, pagos });
-
-        UI.agregarAlerta(
-            '✅ Pago procesado',
-            `Mesa ${mesaNumero} liberada. Pago con ${metodoPago}`,
-            'success'
-        );
-
-        this.cerrarModal('pago');
-        await CargarDatos.cargarMesas();
-
-    } catch (error) {
-        console.error('❌ Error al procesar pago:', error);
-        UI.agregarAlerta('❌ Error', error.message, 'error');
+async procesarPago({ cuenta_id, pagos }) {
+    if (!cuenta_id || !pagos || !Array.isArray(pagos) || pagos.length === 0) {
+        throw new Error("No se proporcionaron pagos válidos");
     }
+
+    // Transformar los pagos para que tengan los campos obligatorios
+    const pagosCorregidos = pagos.map(pago => ({
+        cuenta_id: pago.cuenta_id || cuenta_id,
+        cliente_nombre: pago.cliente_nombre || "Cliente",
+        monto: parseFloat(pago.monto),
+        metodo_pago: pago.metodo_pago || "efectivo",
+        creado_en: pago.creado_en || new Date().toISOString()
+    }));
+
+    console.log("💳 Procesando pago:", { cuenta_id, pagos: pagosCorregidos });
+
+    return await this.request("/pagos/pagar", "POST", { cuenta_id, pagos: pagosCorregidos });
 },
 // ========== ACCIONES DE FUSIÓN ==========
 iniciarFusionMesa(mesaId, mesaNumero) {
