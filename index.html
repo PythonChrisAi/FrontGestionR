@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FrontGestionR | Dashboard Restaurante</title>
+    <link rel="stylesheet" href="css/style.css">
+    <!-- Socket.IO client -->
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🍽️</text></svg>">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header con estado de conexión -->
+        <header class="glass-header">
+            <div class="header-left">
+                <h1>🍽️ FrontGestionR</h1>
+                <span class="version-badge">v1.0.0</span>
+            </div>
+            <div class="header-right">
+                <div class="connection-status" id="connection-status">
+                    <span class="status-indicator online"></span>
+                    <span class="status-text">Conectado</span>
+                </div>
+                <div class="user-menu" id="user-menu" style="display: none;">
+                    <span class="user-name" id="userName"></span>
+                    <button class="btn-logout" id="btnLogout">Cerrar Sesión</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Barra de navegación principal -->
+        <nav class="main-nav glass-card">
+            <button class="nav-btn active" data-section="cocina">
+                <span class="nav-icon">👨‍🍳</span>
+                <span>Cocina</span>
+                <span class="badge" id="cocina-badge">0</span>
+            </button>
+            <button class="nav-btn" data-section="mesas">
+                <span class="nav-icon">🪑</span>
+                <span>Mesas</span>
+                <span class="badge" id="mesas-badge">0</span>
+            </button>
+            <button class="nav-btn" data-section="alertas">
+                <span class="nav-icon">🔔</span>
+                <span>Alertas</span>
+                <span class="badge" id="alertas-badge">0</span>
+            </button>
+            <button class="nav-btn" data-section="login" id="login-nav-btn" style="display: none;">
+                <span class="nav-icon">🔐</span>
+                <span>Login</span>
+            </button>
+        </nav>
+
+        <!-- Contenido principal -->
+        <main class="main-content">
+            <!-- Sección Cocina (visible por defecto) -->
+            <section id="cocina-section" class="content-section active">
+                <div class="section-header">
+                    <h2>👨‍🍳 Órdenes en Preparación</h2>
+                    <div class="section-actions">
+                        <button class="btn-refresh" onclick="CargarDatos.cargarPedidosPendientes()">
+                            🔄 Actualizar
+                        </button>
+                    </div>
+                </div>
+                <div id="cocina-ordenes" class="ordenes-container">
+                    <div class="loading-spinner">Cargando órdenes...</div>
+                </div>
+            </section>
+
+            <!-- Sección Mesas -->
+            <section id="mesas-section" class="content-section">
+                <div class="section-header">
+                    <h2>🪑 Estado de Mesas</h2>
+                    <div class="section-actions">
+                        <button class="btn-refresh" onclick="CargarDatos.cargarMesas()">
+                            🔄 Actualizar
+                        </button>
+                    </div>
+                </div>
+                <div id="mesas-grid" class="mesas-grid">
+                    <div class="loading-spinner">Cargando mesas...</div>
+                </div>
+            </section>
+
+            <!-- Sección Alertas -->
+            <section id="alertas-section" class="content-section">
+                <div class="section-header">
+                    <h2>🔔 Notificaciones en Tiempo Real</h2>
+                    <div class="section-actions">
+                        <button class="btn-clear" onclick="UI.limpiarAlertas()">
+                            🧹 Limpiar todas
+                        </button>
+                    </div>
+                </div>
+                <div id="alertas-container" class="alertas-container">
+                    <div class="empty-state">No hay notificaciones nuevas</div>
+                </div>
+            </section>
+
+            <!-- Sección Login -->
+            <section id="login-section" class="content-section">
+                <div class="login-container glass-card">
+                    <h2>🔐 Iniciar Sesión</h2>
+                    <form id="loginForm" class="login-form">
+                        <div class="form-group">
+                            <label for="username">Usuario:</label>
+                            <input type="text" id="username" name="username" required 
+                                   placeholder="Ingresa tu usuario">
+                        </div>
+                        <div class="form-group">
+                            <label for="password">Contraseña:</label>
+                            <input type="password" id="password" name="password" required 
+                                   placeholder="Ingresa tu contraseña">
+                        </div>
+                        <button type="submit" class="btn-login">Iniciar Sesión</button>
+                    </form>
+                    <div id="login-error" class="login-error"></div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Scripts -->
+    <script src="js/config.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/sockets.js"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
