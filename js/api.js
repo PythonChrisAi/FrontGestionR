@@ -15,6 +15,9 @@ const API = {
         try {
             const url = `${this.baseUrl}${endpoint}`;
             console.log(`📡 API Request: ${options.method || 'GET'} ${url}`);
+            if (options.body) {
+                console.log('📦 Body:', JSON.parse(options.body));
+            }
             
             const response = await fetch(url, {
                 ...options,
@@ -29,12 +32,23 @@ const API = {
                     // Token expirado o no válido
                     localStorage.removeItem('authToken');
                     localStorage.removeItem('user');
-                    UI.mostrarLogin();
+                    if (typeof UI !== 'undefined' && UI.mostrarLogin) {
+                        UI.mostrarLogin();
+                    }
                     throw new Error('Sesión expirada. Inicia sesión nuevamente.');
                 }
                 
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.error || errorData.message || `Error ${response.status}`);
+                let errorMessage = `Error ${response.status}`;
+                try {
+                    const errorData = await response.json();
+                    errorMessage = errorData.error || errorData.message || errorMessage;
+                } catch {
+                    // Si no se puede parsear el JSON, usar el texto de la respuesta
+                    const text = await response.text();
+                    if (text) errorMessage = text;
+                }
+                
+                throw new Error(errorMessage);
             }
 
             const data = await response.json();
@@ -120,13 +134,19 @@ const API = {
         return this.request(`/api/pagos/cuenta/${cuentaId}`);
     },
 
-    procesarPago(cuentaId, pagos) {
+    /**
+     * Procesa el pago de una cuenta
+     * @param {Object} pagoData - Datos del pago
+     * @param {number} pagoData.cuenta_id - ID de la cuenta
+     * @param {Array} pagoData.pagos - Array de pagos por cliente
+     * @param {string} pagoData.pagos[].cliente_nombre - Nombre del cliente
+     * @param {number} pagoData.pagos[].monto - Monto a pagar
+     * @param {string} pagoData.pagos[].metodo_pago - Método de pago (efectivo/terminal)
+     */
+    procesarPago(pagoData) {
         return this.request('/api/pagos/pagar', {
             method: 'POST',
-            body: JSON.stringify({
-                cuenta_id: cuentaId,
-                pagos: pagos
-            })
+            body: JSON.stringify(pagoData)
         });
     },
 

@@ -27,7 +27,7 @@ const UI = {
     // Cache del menú
     menuCache: [],
     
-    // Mapa de mesas a cuentas (simulado - en producción debería venir del backend)
+    // Mapa de mesas a cuentas (guardamos la relación después de abrir cuenta)
     mesaCuentaMap: new Map(),
 
     init() {
@@ -382,7 +382,7 @@ const UI = {
             </div>
             
             <div class="btn-group">
-                <button class="btn-success" onclick="UI.procesarPago(${cuenta.cuenta_id}, ${cuenta.gran_total})">
+                <button class="btn-success" onclick="UI.procesarPago(${cuenta.cuenta_id}, '${cuenta.mesa_numero}')">
                     ✅ Procesar Pago Total
                 </button>
                 <button class="btn-secondary" onclick="UI.cerrarModal('pago')">
@@ -421,6 +421,7 @@ const UI = {
             
             // Guardar la relación mesa-cuenta
             this.mesaCuentaMap.set(mesaId, result.cuenta.id);
+            console.log('Mapa actualizado:', Array.from(this.mesaCuentaMap.entries()));
             
             this.agregarAlerta(
                 '✅ Cuenta abierta',
@@ -456,7 +457,12 @@ const UI = {
 
     async tomarOrdenMesa(mesaId, mesaNumero) {
         // Obtener el cuenta_id de la mesa
-        const cuentaId = this.mesaCuentaMap.get(mesaId) || 1; // Fallback a 1 si no existe
+        const cuentaId = this.mesaCuentaMap.get(mesaId);
+        
+        if (!cuentaId) {
+            this.agregarAlerta('❌ Error', 'No hay cuenta activa para esta mesa', 'error');
+            return;
+        }
         
         this.ordenActual = {
             cuentaId: cuentaId,
@@ -466,20 +472,27 @@ const UI = {
             clientes: ['General']
         };
         
+        console.log('Tomando orden para cuenta:', cuentaId);
         this.abrirModal('orden', { mesaId, mesaNumero });
     },
 
     async verCuenta(mesaId) {
         try {
             // Obtener el cuenta_id de la mesa
-            const cuentaId = this.mesaCuentaMap.get(mesaId) || 1;
+            const cuentaId = this.mesaCuentaMap.get(mesaId);
             
+            if (!cuentaId) {
+                this.agregarAlerta('❌ Error', 'No hay cuenta activa para esta mesa', 'error');
+                return;
+            }
+            
+            console.log('Ver cuenta:', cuentaId);
             const cuenta = await API.getCuenta(cuentaId);
-            const mesaElement = document.querySelector(`[data-mesa-id="${mesaId}"]`);
-            cuenta.mesa_numero = mesaElement?.dataset.mesaNumero || '?';
+            cuenta.mesa_numero = mesaId;
             
             this.abrirModal('pago', cuenta);
         } catch (error) {
+            console.error('Error al ver cuenta:', error);
             this.agregarAlerta('❌ Error', error.message, 'error');
         }
     },
@@ -596,10 +609,12 @@ const UI = {
                 cliente_nombre: item.cliente
             }));
             
-            console.log('Enviando orden:', {
+            const ordenData = {
                 cuenta_id: this.ordenActual.cuentaId,
                 platillos: platillos
-            });
+            };
+            
+            console.log('Enviando orden:', JSON.stringify(ordenData, null, 2));
             
             await API.tomarOrden(this.ordenActual.cuentaId, platillos);
             
@@ -620,27 +635,44 @@ const UI = {
     },
 
     // ========== ACCIONES DE PAGO ==========
-    async procesarPago(cuentaId, totalGeneral) {
+    async procesarPago(cuentaId, mesaNumero) {
         const metodoPago = document.querySelector('input[name="metodo_pago"]:checked').value;
         
         try {
+            // Obtener la cuenta actual para saber los clientes y montos
+            console.log('Obteniendo cuenta:', cuentaId);
+            const cuenta = await API.getCuenta(cuentaId);
+            
+            // Crear un pago por cada cliente usando los montos reales
+            const pagos = cuenta.cuentas_separadas.map(cliente => ({
+                cliente_nombre: cliente.cliente_nombre,
+                monto: parseFloat(cliente.total_a_pagar),
+                metodo_pago: metodoPago
+            }));
+            
             const pagoData = {
                 cuenta_id: cuentaId,
-                pagos: [{
-                    cliente_nombre: 'General',
-                    monto: parseFloat(totalGeneral),
-                    metodo_pago: metodoPago
-                }]
+                pagos: pagos
             };
             
-            console.log('Enviando pago:', pagoData);
+            console.log('Enviando pago:', JSON.stringify(pagoData, null, 2));
             
-            await API.procesarPago(pagoData);
+            const result = await API.procesarPago(pagoData);
+            console.log('Respuesta pago:', result);
+            
+            // Buscar la mesa asociada a esta cuenta
+            let mesaId = null;
+            for (let [key, value] of this.mesaCuentaMap.entries()) {
+                if (value === cuentaId) {
+                    mesaId = key;
+                    break;
+                }
+            }
             
             // Limpiar el mapa para esta mesa
-            const mesaId = this.ordenActual.mesaId;
             if (mesaId) {
                 this.mesaCuentaMap.delete(mesaId);
+                console.log('Mapa actualizado después de pago:', Array.from(this.mesaCuentaMap.entries()));
             }
             
             this.agregarAlerta(
