@@ -7,10 +7,10 @@ const CONFIG = {
     
     // URLs del backend - CORREGIDO
     backendUrl: (() => {
-        if (window.location.hostname === 'localhost' || 
-            window.location.hostname === '127.0.0.1') {
-            return 'http://localhost:3000'; // 🟢 LOCAL: tu backend local
-        }
+        //if (window.location.hostname === 'localhost' || 
+          //  window.location.hostname === '127.0.0.1') {
+            //return 'http://localhost:3000'; // 🟢 LOCAL: tu backend local
+        // }
         // ⚠️ PRODUCCIÓN: tu URL de Railway
         return 'https://restaurant-api-production-3a92.up.railway.app';
     })(),
