@@ -119,8 +119,30 @@ const API = {
         return await this.request(`/ordenes/${cuentaId}/tomar`, 'POST', { platillos });
     },
 
+    // CORREGIDO: Cambiar la ruta de pendientes
     async getPedidosPendientes() {
-        return await this.request('/ordenes/pendientes');
+        // Intentar diferentes rutas posibles
+        const posiblesRutas = [
+            '/ordenes/pendientes',
+            '/pedidos/pendientes',
+            '/cocina/pendientes',
+            '/ordenes'
+        ];
+        
+        for (const ruta of posiblesRutas) {
+            try {
+                console.log(`🔄 Intentando ruta: ${ruta}`);
+                const response = await this.request(ruta, 'GET');
+                console.log(`✅ Ruta exitosa: ${ruta}`);
+                return response;
+            } catch (error) {
+                console.log(`❌ Ruta fallida: ${ruta}`);
+                // Continuar con la siguiente ruta
+            }
+        }
+        
+        // Si ninguna ruta funciona, lanzar error
+        throw new Error('No se pudo encontrar el endpoint de pedidos pendientes');
     },
 
     async getMenu() {
@@ -159,6 +181,26 @@ const API = {
             return res.ok;
         } catch {
             return false;
+        }
+    },
+
+    // Función adicional para obtener el estado de la cocina
+    async getCocinaEstado() {
+        try {
+            return await this.request('/cocina/estado');
+        } catch (error) {
+            console.log('⚠️ Endpoint de cocina no disponible');
+            return [];
+        }
+    },
+
+    // Función adicional para marcar pedido como listo
+    async marcarPedidoListo(pedidoId) {
+        try {
+            return await this.request(`/ordenes/${pedidoId}/listo`, 'POST');
+        } catch (error) {
+            console.log('⚠️ No se pudo marcar como listo');
+            throw error;
         }
     }
 };
