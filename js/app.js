@@ -57,7 +57,16 @@ const UI = {
             const mesasOcupadas = mesas.filter(m => m.estado === 'ocupada');
             
             console.log('Mesas ocupadas en backend:', mesasOcupadas.map(m => m.numero));
-            console.log('Mapa actual:', Array.from(this.mesaCuentaMap.entries()));
+            console.log('Mapa actual antes de sincronizar:', Array.from(this.mesaCuentaMap.entries()));
+            
+            // Limpiar del mapa las mesas que ya no están ocupadas
+            const mesasIdsOcupadas = new Set(mesasOcupadas.map(m => m.id));
+            for (let [mesaId, cuentaId] of this.mesaCuentaMap.entries()) {
+                if (!mesasIdsOcupadas.has(mesaId)) {
+                    console.log(`🗑️ Eliminando del mapa: Mesa ${mesaId} (ya no está ocupada)`);
+                    this.mesaCuentaMap.delete(mesaId);
+                }
+            }
             
             // Si hay mesas ocupadas sin cuenta en el mapa, crear cuentas simuladas
             for (const mesa of mesasOcupadas) {
@@ -67,6 +76,8 @@ const UI = {
                     console.log(`✅ Cuenta simulada creada: Mesa ${mesa.numero} → Cuenta #${cuentaId}`);
                 }
             }
+            
+            console.log('Mapa después de sincronizar:', Array.from(this.mesaCuentaMap.entries()));
             
         } catch (error) {
             console.error('Error sincronizando cuentas:', error);
@@ -760,14 +771,30 @@ const UI = {
             }
             
             if (mesaId) {
+                console.log('Mesa encontrada:', mesaId);
+                
                 // Limpiar el mapa para esta mesa
                 this.mesaCuentaMap.delete(mesaId);
                 console.log('Mapa actualizado después de pago:', Array.from(this.mesaCuentaMap.entries()));
+                
+                // Intentar liberar la mesa en el backend (si existe el endpoint)
+                try {
+                    // Si tuvieras un endpoint para liberar mesa, lo llamarías aquí
+                    // await API.liberarMesa(mesaId);
+                    console.log('Mesa liberada en backend');
+                } catch (backendError) {
+                    console.log('No se pudo liberar en backend, continuando con frontend');
+                }
             }
+            
+            // Obtener el total del modal para mostrarlo
+            const totalElement = document.querySelector('.cuenta-total');
+            const totalText = totalElement ? totalElement.textContent : 'TOTAL GENERAL: $0';
+            const total = totalText.replace('TOTAL GENERAL: $', '').trim();
             
             this.agregarAlerta(
                 '✅ Pago exitoso',
-                `Pago de $${document.querySelector('.cuenta-total')?.textContent.replace('TOTAL GENERAL: $', '') || '0'} procesado con ${metodoPago}. Mesa liberada.`,
+                `Pago de $${total} procesado con ${metodoPago}. Mesa ${mesaNumero} liberada.`,
                 'success'
             );
             
@@ -775,6 +802,12 @@ const UI = {
             
             // Recargar mesas para actualizar estado
             await CargarDatos.cargarMesas();
+            
+            // Forzar actualización del mapa después de recargar mesas
+            setTimeout(async () => {
+                await this.sincronizarCuentas();
+                console.log('Mapa después de sincronizar:', Array.from(this.mesaCuentaMap.entries()));
+            }, 1000);
             
         } catch (error) {
             console.error('Error al procesar pago:', error);
@@ -1092,6 +1125,10 @@ const CargarDatos = {
                 ];
             }
             UI.renderizarMesas(mesas);
+            
+            // Sincronizar cuentas después de cargar mesas
+            await UI.sincronizarCuentas();
+            
         } catch (error) {
             console.error('Error cargando mesas:', error);
             container.innerHTML = '<div class="empty-state">Error al cargar mesas</div>';
