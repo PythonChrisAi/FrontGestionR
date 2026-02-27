@@ -636,20 +636,27 @@ UI.renderizarMesas(mesas);
 
 /// ========== ACCIONES DE PAGO ==========
 async procesarPago(cuentaId, mesaNumero) {
-
     try {
-
-        // Si no hay selección, default = terminal
         const metodoPago =
             document.querySelector('input[name="metodo_pago"]:checked')?.value
             || "terminal";
 
-        console.log('💳 Procesando pago:', {
-            cuenta_id: cuentaId,
-            metodo_pago: metodoPago
-        });
+        const cuenta = await API.getCuenta(cuentaId);
 
-        await API.procesarPago(cuentaId, metodoPago);
+        const pagos = cuenta.cuentas_separadas.map(cliente => ({
+            cliente_nombre: cliente.cliente_nombre,
+            monto: parseFloat(cliente.total_a_pagar),
+            metodo_pago: metodoPago
+        }));
+
+        const pagoData = {
+            cuenta_id: cuentaId,
+            pagos: pagos
+        };
+
+        console.log("📤 Enviando:", pagoData);
+
+        await API.procesarPago(pagoData);
 
         this.agregarAlerta(
             '✅ Pago procesado',
@@ -658,7 +665,6 @@ async procesarPago(cuentaId, mesaNumero) {
         );
 
         this.cerrarModal('pago');
-
         await CargarDatos.cargarMesas();
 
     } catch (error) {
@@ -667,8 +673,8 @@ async procesarPago(cuentaId, mesaNumero) {
     }
 },
 
-    // ========== ACCIONES DE FUSIÓN ==========
-    iniciarFusionMesa(mesaId, mesaNumero) {
+// ========== ACCIONES DE FUSIÓN ==========
+iniciarFusionMesa(mesaId, mesaNumero) {
         this.fusionState = {
             mesaPrincipal: { id: mesaId, numero: mesaNumero },
             mesasSeleccionadas: []
